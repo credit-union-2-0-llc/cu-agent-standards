@@ -642,5 +642,109 @@ class TestRepoAndCLI(unittest.TestCase):
         self.assertFalse(set(wh.FINDING_KINDS) & set(wh.INFO_KINDS))
 
 
+
+
+# ---------------------------------------------------------------------------
+# T9 — default-branch CI red and ignored
+# ---------------------------------------------------------------------------
+
+def ci(runs, as_of, **kw):
+    return wh.classify_ci("acme/repo", "CI", ".github/workflows/ci.yml",
+                          runs, at(as_of), **kw)
+
+
+class TestT9(unittest.TestCase):
+    """
+    T9 came from a T4 remediation walking into it: BusinessLoanReview's last 20
+    runs on main had all failed, every one since 2026-05-19. Its typecheck step
+    is NOT suppressed — it runs unguarded and correctly reports 150 real type
+    errors. The control works. Nobody acts on it.
+
+    Every other detector here assumes the problem is a signal that lies. This one
+    is a signal telling the truth into an empty room.
+    """
+
+    def test_t9_red_for_twenty_runs(self):
+        runs = [run("failure", f"2026-07-{d:02d}T00:00:00Z", event="push", number=d)
+                for d in range(28, 8, -1)]
+        h = ci(runs, "2026-07-28")
+        self.assertEqual(h.kind, "red")
+        self.assertEqual(h.severity, "high")
+        self.assertEqual(h.consecutive_push_failures, 20)
+        self.assertIsNone(h.days_since_last_push_success)
+        self.assertIn("merged past", h.message)
+
+    def test_t9_ignores_a_healthy_repo(self):
+        runs = [run("success", "2026-07-28T00:00:00Z", event="push", number=2),
+                run("failure", "2026-07-27T00:00:00Z", event="push", number=1)]
+        h = ci(runs, "2026-07-28")
+        self.assertEqual(h.kind, "ok")
+        self.assertNotIn(h.kind, wh.CI_FINDING_KINDS)
+
+    def test_t9_ignores_a_break_that_may_still_be_in_hand(self):
+        """Two failures today is a Tuesday, not a 70-day habit."""
+        runs = [run("failure", "2026-07-28T00:00:00Z", event="push", number=3),
+                run("failure", "2026-07-28T01:00:00Z", event="push", number=2),
+                run("success", "2026-07-27T00:00:00Z", event="push", number=1)]
+        h = ci(runs, "2026-07-28")
+        self.assertEqual(h.kind, "recent_failure")
+        self.assertNotIn(h.kind, wh.CI_FINDING_KINDS)
+
+    def test_t9_cancelled_runs_do_not_make_a_repo_red(self):
+        runs = [run("cancelled", "2026-07-28T00:00:00Z", event="push", number=3),
+                run("cancelled", "2026-07-27T00:00:00Z", event="push", number=2),
+                run("success", "2026-07-26T00:00:00Z", event="push", number=1)]
+        self.assertEqual(ci(runs, "2026-07-28").kind, "ok")
+
+    def test_t9_a_repo_with_no_pushes_is_not_a_finding(self):
+        h = ci([], "2026-07-28")
+        self.assertEqual(h.kind, "no_runs")
+        self.assertNotIn(h.kind, wh.CI_FINDING_KINDS)
+
+    def test_t9_severity_rises_with_duration(self):
+        short = ci([run("failure", "2026-07-28T00:00:00Z", event="push", number=4),
+                    run("failure", "2026-07-27T00:00:00Z", event="push", number=3),
+                    run("failure", "2026-07-26T00:00:00Z", event="push", number=2),
+                    run("success", "2026-07-25T00:00:00Z", event="push", number=1)],
+                   "2026-07-28")
+        self.assertEqual((short.kind, short.severity), ("red", "medium"))
+        long = ci([run("failure", "2026-07-28T00:00:00Z", event="push", number=4),
+                   run("failure", "2026-07-27T00:00:00Z", event="push", number=3),
+                   run("failure", "2026-07-26T00:00:00Z", event="push", number=2),
+                   run("success", "2026-06-01T00:00:00Z", event="push", number=1)],
+                  "2026-07-28")
+        self.assertEqual((long.kind, long.severity), ("red", "high"))
+
+    def test_t9_no_field_claims_to_measure_attention(self):
+        """The `spark_reachable` rule, applied to the newest detector."""
+        for f in wh.CIHealth._fields:
+            self.assertNotIn("watch", f)
+            self.assertNotIn("ignor", f)
+        self.assertIn("consecutive_push_failures", wh.CIHealth._fields)
+        self.assertIn("days_since_last_push_success", wh.CIHealth._fields)
+
+    def test_t9_query_filters_to_push_on_the_default_branch(self):
+        """
+        The T7 lesson, pinned for T9 before it can bite: infer the event from an
+        unfiltered page and a busy workflow gives the wrong verdict with total
+        confidence. The filter must be in the request.
+        """
+        seen = []
+
+        class Watcher(_FakeGh):
+            def get(self, path, paginate=False):
+                seen.append(path)
+                if path.startswith("repos/acme/repo") and "/actions/" not in path:
+                    return {"default_branch": "main"}
+                if "/runs" in path:
+                    return {"total_count": 0, "workflow_runs": []}
+                return super().get(path, paginate)
+
+        wh.check_repo_ci(Watcher(), "acme/repo", at("2026-07-28"))
+        runq = [p for p in seen if "/runs" in p]
+        self.assertTrue(runq, "no run query issued")
+        self.assertTrue(all("event=push" in p and "branch=main" in p for p in runq),
+                        f"run query must filter server-side: {runq}")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

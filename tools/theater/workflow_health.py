@@ -3,6 +3,7 @@
 workflow_health.py — detector T7 of the CU 2.0 verification-theater taxonomy.
 
     T7  a scheduled workflow that everyone believes is running, and is not.
+    T9  a default-branch CI that is red, honest, and ignored.
 
 WHY THIS IS A SEPARATE FILE
 
@@ -441,6 +442,117 @@ def _days_since_success(scheduled_newest_first, as_of):
 
 
 # ---------------------------------------------------------------------------
+# T9 — default-branch CI red and ignored
+#
+# A DIFFERENT DEFECT FROM EVERYTHING ELSE HERE, and the taxonomy missed it until
+# a T4 remediation walked into it.
+#
+#   T1 / T2 / T8   a gate that CANNOT fail
+#   T7             a SCHEDULED job that is red or absent
+#   T9             a PUSH-triggered CI that is red, correct, and ignored
+#
+# BusinessLoanReview: 20 of its last 20 runs on main failed, every one since
+# 2026-05-19. Seventy days. Its `pnpm typecheck` step is not suppressed — it runs
+# unguarded and correctly reports 150 real type errors. The control is working
+# perfectly. Nobody is acting on it, and every merge in that window went in on a
+# red build.
+#
+# That is worth naming separately, because every other detector here assumes the
+# problem is a signal that lies. This one is a signal that tells the truth into
+# an empty room. No amount of making gates honest fixes it.
+#
+# NAMING, AGAIN. The fields are consecutive_push_failures and
+# days_since_last_push_success. Not `ignored`, not `unwatched` — the API cannot
+# see whether a human looked. "Ignored" is the inference a reader draws from 70
+# days; it is not the measurement.
+# ---------------------------------------------------------------------------
+
+DEFAULT_MIN_CI_FAILURES = 3
+
+CIHealth = namedtuple("CIHealth", [
+    "repo", "workflow", "path", "kind", "severity", "message",
+    "consecutive_push_failures", "days_since_last_push_success",
+    "runs_examined", "evidence_url",
+])
+
+
+def classify_ci(repo, workflow_name, path, runs, as_of,
+                min_failures=DEFAULT_MIN_CI_FAILURES):
+    """
+    Health of one workflow's default-branch push history. Pure; no network.
+
+    `runs` must already be filtered to push events on the default branch — the
+    same lesson as T7, where inferring the event from an unfiltered page called a
+    live nightly cron `never_ran`.
+    """
+    dated = [r for r in runs if _parsed_at(r) is not None and _parsed_at(r) <= as_of]
+
+    def mk(kind, message, severity):
+        newest = dated[0] if dated else None
+        return CIHealth(
+            repo=repo, workflow=workflow_name, path=path, kind=kind,
+            severity=severity, message=message,
+            consecutive_push_failures=_leading_failures(dated),
+            days_since_last_push_success=_days_since_success(dated, as_of),
+            runs_examined=len(dated),
+            evidence_url=(newest or {}).get("html_url"),
+        )
+
+    if not dated:
+        return mk("no_runs", "No push runs on the default branch", "info")
+
+    consecutive = _leading_failures(dated)
+    if consecutive == 0:
+        return mk("ok", "Most recent default-branch run passed", "info")
+    if consecutive < min_failures:
+        return mk("recent_failure",
+                  f"{consecutive} recent failure(s) — below the {min_failures}-run "
+                  f"threshold, plausibly still being fixed", "info")
+
+    days = _days_since_success(dated, as_of)
+    span = "has never passed" if days is None else f"last passed {days} days ago"
+    # A repo can only be this red for this long if nobody is reading it.
+    severity = "high" if (days is None or days >= 14 or consecutive >= 10) else "medium"
+    return mk("red",
+              f"Default-branch CI has failed {consecutive} consecutive runs and "
+              f"{span} — the check is honest and is being merged past",
+              severity)
+
+
+CI_FINDING_KINDS = {"red"}
+
+
+def check_repo_ci(gh, repo, as_of, default_branch=None, runs_per_workflow=30, **kw):
+    """Classify default-branch push CI for every real workflow in one repo."""
+    try:
+        if default_branch is None:
+            default_branch = gh.get(f"repos/{repo}", ).get("default_branch") or "main"
+        workflows = gh.get_all(f"repos/{repo}/actions/workflows?per_page=100", "workflows")
+    except GhError as exc:
+        return [CIHealth(repo, "(repo)", "", "error", "medium",
+                         f"could not read workflows: {exc}", 0, None, 0, "")]
+
+    out = []
+    for wf in workflows:
+        path = wf.get("path") or ""
+        if DYNAMIC_PATH_RE.match(path):
+            continue
+        try:
+            payload = gh.get(f"repos/{repo}/actions/workflows/{wf.get('id')}/runs"
+                             f"?event=push&branch={default_branch}"
+                             f"&per_page={runs_per_workflow}")
+            runs = payload.get("workflow_runs") or []
+        except GhNotFound:
+            continue          # workflow file deleted; T7 reports it as orphaned
+        except GhError as exc:
+            out.append(CIHealth(repo, wf.get("name") or "", path, "error", "medium",
+                                f"run history failed: {exc}", 0, None, 0, ""))
+            continue
+        out.append(classify_ci(repo, wf.get("name") or "", path, runs, as_of, **kw))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # GitHub API access
 # ---------------------------------------------------------------------------
 
@@ -729,6 +841,10 @@ def build_parser():
     p.add_argument("--report", action="store_true",
                    help="print every workflow row and always exit 0")
     p.add_argument("--json", metavar="PATH", help="write full results as JSON")
+    p.add_argument("--ci", action="store_true",
+                   help="T9 instead of T7: default-branch CI red for N consecutive "
+                        "push runs")
+    p.add_argument("--min-ci-failures", type=int, default=DEFAULT_MIN_CI_FAILURES)
     p.add_argument("--verbose", action="store_true")
     return p
 
@@ -769,6 +885,32 @@ def main(argv=None):
     if args.clones_dir and not os.path.isdir(args.clones_dir):
         sys.stderr.write(f"error: --clones-dir not a directory: {args.clones_dir}\n")
         return 2
+
+    if args.ci:
+        rows = []
+        for i, repo in enumerate(repos, start=1):
+            sys.stderr.write(f"[{i}/{len(repos)}] {repo}\n")
+            rows += check_repo_ci(gh, repo, as_of, min_failures=args.min_ci_failures)
+        findings = [r for r in rows if r.kind in CI_FINDING_KINDS]
+        for r in sorted(findings, key=lambda x: -x.consecutive_push_failures):
+            print(f"{r.repo}  {r.path or r.workflow}")
+            print(f"    [T9/{r.severity}] {r.message}")
+            print(f"    consecutive_push_failures={r.consecutive_push_failures}  "
+                  f"days_since_last_push_success={r.days_since_last_push_success}")
+            if r.evidence_url:
+                print(f"    {r.evidence_url}")
+        by = Counter(r.kind for r in rows)
+        print(f"\nworkflow_health T9: {len(findings)} finding(s) across {len(repos)} "
+              f"repo(s), {len(rows)} workflow row(s) as of {as_of.date()}")
+        print("  by kind: " + "  ".join(f"{k}={v}" for k, v in sorted(by.items())))
+        if args.json:
+            with open(args.json, "w", encoding="utf-8") as fh:
+                json.dump([r._asdict() for r in rows], fh, indent=1)
+            print(f"  json: {args.json}")
+        if not findings:
+            print("workflow_health: CLEAN")
+            return 0
+        return 0 if args.report else 1
 
     rows = []
     for i, repo in enumerate(repos, start=1):
