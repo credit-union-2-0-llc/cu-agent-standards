@@ -1,0 +1,28 @@
+# .cu2-sanitize-allow — narrow, documented exceptions.
+#
+# ---------------------------------------------------------------------------
+# The `credit-union-2-0-llc` organisation slug.
+#
+# The `internal` tier flags a private-org repo slug, which is normally right.
+# Here it is unavoidable and deliberate, for two reasons:
+#
+#   1. tools/theater/templates/theater.yml MUST name the repository the
+#      reusable workflow lives in. That reference IS the template.
+#   2. The bug ledger in tools/theater/README.md, and the regression tests that
+#      pin each bug, cite the repositories the bugs were found in — "bond has
+#      301 workflow records for 8 files", "the real shape in
+#      misty-9000/backend/app/main.py:210". Replacing those with
+#      `example-service` would make the ledger read as hypothetical, and the
+#      ledger is the most useful thing in this repo.
+#
+# What this exception does NOT cover: hostnames, resource groups, tenant names,
+# member data, or anything under the `pii` tier. Those still fail the gate.
+#
+# Reviewed: 2026-07-28.
+# ---------------------------------------------------------------------------
+line:credit-union-2-0-llc/[\w.-]+
+
+# GitHub Actions run URLs. The digits are an Actions run counter — repo-scoped,
+# issued by GitHub, carrying no information about a person. They are the
+# evidence links for T7 findings, so the value is load-bearing.
+line:https://github\.com/[\w.-]+/[\w.-]+/actions/runs/\d+

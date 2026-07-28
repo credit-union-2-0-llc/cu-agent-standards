@@ -1,0 +1,35 @@
+# .theater-allow — file-level exclusions for theater_scan.py
+#
+# Copy to the ROOT of the repo being scanned, rename to `.theater-allow`.
+#
+# PREFER DECLARATION OVER EXCLUSION.
+#
+# This file excludes whole FILES from scanning. That is a blunt instrument and
+# almost always the wrong tool. The right tool is an inline declaration on the
+# specific line, which keeps the suppression visible and inventoried:
+#
+#     - run: pnpm audit --audit-level=high || true   # theater-ok: advisory, tracked RISK-123
+#
+# A declared suppression PASSES the gate and appears in `--inventory`. An
+# excluded file disappears entirely — nobody reviews it again. Use this file
+# only for vendored or generated trees you do not own.
+#
+# SYNTAX
+#   path:<regex>    skip a file whose repo-relative path matches
+#                   (must start with ^ or contain /)
+#
+# The scanner rejects broad patterns (`.*`, `.+`, bare fragments under 4 chars)
+# and unanchored entries, and that rejection FAILS the run.
+
+# ---------------------------------------------------------------------------
+# Examples, commented out. Uncomment and adapt.
+# ---------------------------------------------------------------------------
+
+# Vendored third-party source we do not maintain.
+# path:^vendor/
+
+# Generated client — regenerated on every build, edits do not survive.
+# path:^src/generated/
+
+# Fixture tree of deliberately broken samples used by the linter's own tests.
+# path:^tests/fixtures/broken/

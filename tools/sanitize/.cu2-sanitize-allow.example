@@ -1,0 +1,41 @@
+# .cu2-sanitize-allow — narrow, documented exceptions for cu2_sanitize_scan.py
+#
+# Copy to the ROOT of the repo being scanned (not into tools/sanitize/) and
+# rename to `.cu2-sanitize-allow`.
+#
+# RULES OF THE ROAD
+#   - Every entry needs a comment saying WHY. An uncommented entry is a bypass.
+#   - The gate rejects broad patterns (`.*`, `.+`, bare fragments under 4 chars)
+#     and unanchored `path:` entries. That rejection FAILS the run — you cannot
+#     quietly widen the net.
+#   - An allowlist entry means "this specific value is safe to publish", not
+#     "this rule is noisy". If a rule is genuinely noisy, fix the rule.
+#
+# SYNTAX
+#   line:<regex>   suppress any LINE matching the regex
+#   path:<regex>   skip an entire FILE whose repo-relative path matches
+#                  (must start with ^ or contain /)
+#   <regex>        bare entries are treated as `line:`
+
+# ---------------------------------------------------------------------------
+# Customer-facing hosts. These are published on marketing material and in DNS;
+# naming them discloses nothing. Every OTHER *.cu-2.com host is internal
+# surface area and must stay flagged.
+# ---------------------------------------------------------------------------
+line:redvisor\.cu-2\.com
+line:studio\.cu-2\.com
+line:brand\.cu-2\.com
+line:qc\.cu-2\.com
+
+# ---------------------------------------------------------------------------
+# Examples to copy, commented out. Uncomment and adapt as needed.
+# ---------------------------------------------------------------------------
+
+# Public GitHub org path appears in install instructions we intend to publish.
+# line:github\.com/<org>/<public-repo-name>
+
+# Synthetic fixtures reviewed by <name> on <date>; all values are generated.
+# path:^tests/fixtures/synthetic/
+
+# Vendor documentation excerpt quoting their own public example endpoint.
+# line:contoso\.vault\.azure\.net
