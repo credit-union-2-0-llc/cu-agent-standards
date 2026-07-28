@@ -1,12 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# CU2 Theater Gate — reusable workflow
+# Theater Gate — reusable workflow
 #
 # Blocks verification theater INTRODUCED BY A CHANGE, and ignores the standing
-# backlog. That is what makes it adoptable: the estate carries 774 existing
-# candidates, so a gate that failed on the backlog could never be switched on,
-# and an un-switched-on gate is worth nothing.
+# backlog. That is what makes it adoptable: a gate that failed on a repository's
+# existing findings could never be switched on, and an un-switched-on gate is
+# worth nothing.
 #
-# Usage in any CU2 repo — the whole of it:
+# Usage in any repository — the whole of it:
 #
 #   name: Theater gate
 #   on:
@@ -16,89 +16,39 @@
 #     theater:
 #       uses: credit-union-2-0-llc/cu-agent-standards/.github/workflows/reusable-theater.yml@main
 #
-# No secrets, no tokens, no organisation settings. The source repository is
-# public, so any caller of any visibility can use it.
-#
-# No secrets, no tokens, no organisation settings — the source repository is
-# public, so any caller of any visibility can use it.
-#
-# WHY REUSABLE RATHER THAN A COPIED FILE. The detector has been wrong ten times
-# and will be wrong again. Vendoring it into 92 repos means every fix needs 92
-# PRs, and the copies drift. Here the caller gets ten lines and the detector
-# stays in one place, so a correction propagates on merge.
-#
-# See tools/theater/README.md for the detectors, the declared-suppression
-# convention, and the ledger of the ten times this toolchain lied to us.
-# ─────────────────────────────────────────────────────────────────────────────
-
-name: CU2 Theater Gate (reusable)
-
-on:
-  workflow_call:
-    inputs:
-      profile:
-        description: "gate (T1,T2,T3,T4,T6) or all (adds T5, skipped tests)"
-        type: string
-        default: gate
-      standards-ref:
-        description: >-
-          Override the ref of cu2-standards the detector comes from. Leave empty
-          (the default) to use the exact commit this workflow was loaded from,
-          which is almost always what you want.
-        type: string
-        default: ""
-      report-backlog:
-        description: "Print the repo's standing backlog (non-blocking)"
-        type: boolean
-        default: true
-jobs:
-#     theater:
-#       uses: credit-union-2-0-llc/cu-agent-standards/.github/workflows/reusable-theater.yml@main
-#
 # No secrets, no tokens, no organisation settings. This source repository is
-# public, so any caller of any visibility can use it — which is the point:
-# a private source cannot be called by public or internal repositories at all.
+# public, so a caller of any visibility can use it — which is the point: a
+# PRIVATE source cannot be called by public or internal repositories at all,
+# and that restriction surfaces as a zero-job run with no log and no annotation.
 #
-# WHY REUSABLE RATHER THAN A COPIED FILE. The detector has been wrong ten times
-# and will be wrong again. Vendoring it into 92 repos means every fix needs 92
-# PRs, and the copies drift. Here the caller gets ten lines and the detector
-# stays in one place, so a correction propagates on merge.
+# WHY REUSABLE RATHER THAN A COPIED FILE. The detector has been wrong eleven
+# times and will be wrong again. Vendoring it into every repository means each
+# fix needs a pull request per repository, and the copies drift. Here the caller
+# gets four lines and a correction propagates on merge.
 #
 # See tools/theater/README.md for the detectors, the declared-suppression
-# convention, and the ledger of the ten times this toolchain lied to us.
+# convention, and the ledger of the eleven times this toolchain lied to us.
 # ─────────────────────────────────────────────────────────────────────────────
 
-name: CU2 Theater Gate (reusable)
+name: Theater Gate (reusable)
 
 on:
   workflow_call:
     inputs:
       profile:
-        description: "gate (T1,T2,T3,T4,T6) or all (adds T5, skipped tests)"
+        description: "gate (T1,T2,T3,T4,T6,T8) or all (adds T5, skipped tests)"
         type: string
         default: gate
       standards-ref:
         description: >-
-          Override the ref of cu2-standards the detector comes from. Leave empty
-          (the default) to use the exact commit this workflow was loaded from,
-          which is almost always what you want.
+          Override the ref this workflow takes the detector from. Leave empty
+          (the default) to track main.
         type: string
         default: ""
       report-backlog:
         description: "Print the repo's standing backlog (non-blocking)"
         type: boolean
         default: true
-    # DELIBERATELY NOT `required: true`.
-    #
-    # A required secret that the caller cannot see makes the workflow fail to
-    # COMPILE: no job, no log, no annotation, just "This run likely failed
-    # because of a workflow file issue". Nine repos in the first estate-wide
-    # rollout failed exactly that way and the cause was invisible from the API.
-    #
-    # An opaque failure with no diagnostic is how a gate gets deleted rather than
-    # fixed. Declaring them optional moves the failure to the step below, which
-    # says which secret is missing and what to do about it — still fail-closed,
-    # but diagnosable.
 
 jobs:
   theater:
@@ -106,31 +56,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 is REQUIRED, not tidiness. Ratchet mode resolves a base
-      # ref to compute the diff and a shallow clone cannot. The scanner exits 2
+      # ref to compute the diff, and a shallow clone cannot. The scanner exits 2
       # naming this setting rather than degrading to "no changes".
       - name: Checkout caller
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
-      # Scoped to cu2-standards only, and minted fresh per run rather than
-      # carrying a long-lived PAT. Note the estate-wide gotcha this avoids:
-      # ~/.gh-app-token holds an installation token that expires hourly, which
-      # is why interactive `gh` calls here need `env -u GH_TOKEN`. Minting in
-      # the job sidesteps that entirely.
-      # VERSION-LOCKED TO THIS FILE, via github.job_workflow_sha — the commit the
-      # reusable workflow itself was loaded from. The workflow and the detector
-      # it runs can therefore never skew.
-      #
-      # The first pilot defaulted this to `main` and failed: tools/theater did
-      # not exist on main yet, so the sparse checkout delivered nothing. Two refs
-      # kept in agreement by hand is a footgun; one derived ref is not.
-      #
-      # The second pilot then found that github.job_workflow_sha comes through
-      # EMPTY in this context, so the chain falls back to `main` — correct once
-      # this branch merges, and overridable via standards-ref before then. The
-      # guard below reports which ref was actually used, because "not found" without
-      # "not found AT WHAT REF" cost a diagnostic round-trip.
+      # No token: this repository is public, so the caller's own GITHUB_TOKEN
+      # reads it. `github.job_workflow_sha` would version-lock the detector to
+      # this exact file, but it comes through empty in this context, so the
+      # chain falls back to main.
       - name: Fetch the detector
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -142,9 +78,9 @@ jobs:
 
       # FAIL CLOSED ON A MISSING DETECTOR.
       #
-      # If the checkout above half-succeeds — wrong ref, sparse pattern that
-      # matches nothing, a rename in cu2-standards — the next step would run
-      # nothing and the job would go green. Ninety-one repos would then carry a
+      # If the checkout above half-succeeds — wrong ref, a sparse pattern that
+      # matches nothing, a rename upstream — the next step would run nothing and
+      # the job would go green. Every adopting repository would then carry a
       # passing "Theater gate" badge for a gate that never executed, which is a
       # more perfect instance of this defect class than anything the detector
       # looks for. So the file's presence is asserted, and its own test suite
@@ -154,24 +90,19 @@ jobs:
           set -euo pipefail
           SCAN=.cu2-theater/tools/theater/theater_scan.py
           if [ ! -f "$SCAN" ]; then
-            echo "::error::$SCAN not found — the cu2-standards checkout did not"
-            echo "::error::deliver the detector. Refusing to report a pass."
-            echo "::error::ref requested: '${{ inputs.standards-ref != '' && inputs.standards-ref || github.job_workflow_sha }}'"
+            echo "::error::$SCAN not found — the cu-agent-standards checkout did"
+            echo "::error::not deliver the detector. Refusing to report a pass."
             ls -R .cu2-theater 2>/dev/null | head -40 || echo "(.cu2-theater absent)"
             exit 2
           fi
-          echo "detector: $(git -C .cu2-theater rev-parse --short HEAD) \
-            ($(wc -l < "$SCAN") lines)"
-          echo "job_workflow_sha was: '${{ github.job_workflow_sha }}'"
+          echo "detector: $(git -C .cu2-theater rev-parse --short HEAD) ($(wc -l < "$SCAN") lines)"
           python3 .cu2-theater/tools/theater/test_theater_scan.py
 
       # BLOCKING. Fails only on theater this change introduced.
       - name: Theater gate (ratchet — new findings only)
         run: |
           set -euo pipefail
-          BASE="${{ github.event_name == 'pull_request'
-                    && github.event.pull_request.base.sha
-                    || github.event.before }}"
+          BASE="${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}"
           # A first push to a branch, or a force-push, can leave `before` as the
           # null SHA. Fall back rather than skip — never let an unusual event
           # silently disable the gate.
@@ -183,7 +114,7 @@ jobs:
             --profile "${{ inputs.profile }}" --diff-base "$BASE" --tracked-only
 
       # NON-BLOCKING. Keeps the standing number visible so a green ratchet is
-      # never mistaken for a clean repo.
+      # never mistaken for a clean repository.
       - name: Standing backlog (non-blocking)
         if: ${{ always() && inputs.report-backlog }}
         run: |
