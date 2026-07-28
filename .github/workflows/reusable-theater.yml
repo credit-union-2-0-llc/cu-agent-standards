@@ -19,9 +19,8 @@
 # No secrets, no tokens, no organisation settings. The source repository is
 # public, so any caller of any visibility can use it.
 #
-# No per-repo setup. FORGE_BUILD_APP_ID and FORGE_BUILD_PRIVATE_KEY are
-# ORGANISATION secrets with visibility "all", and the cu2-forge-build App is
-# installed on every repo, so the two named secrets resolve everywhere without per-repo setup.
+# No secrets, no tokens, no organisation settings — the source repository is
+# public, so any caller of any visibility can use it.
 #
 # WHY REUSABLE RATHER THAN A COPIED FILE. The detector has been wrong ten times
 # and will be wrong again. Vendoring it into 92 repos means every fix needs 92
@@ -55,13 +54,10 @@ on:
 jobs:
 #     theater:
 #       uses: credit-union-2-0-llc/cu-agent-standards/.github/workflows/reusable-theater.yml@main
-#       secrets:
-#         FORGE_BUILD_APP_ID: ${{ secrets.FORGE_BUILD_APP_ID }}
-#         FORGE_BUILD_PRIVATE_KEY: ${{ secrets.FORGE_BUILD_PRIVATE_KEY }}
 #
-# No per-repo setup. FORGE_BUILD_APP_ID and FORGE_BUILD_PRIVATE_KEY are
-# ORGANISATION secrets with visibility "all", and the cu2-forge-build App is
-# installed on every repo, so the two named secrets resolve everywhere without per-repo setup.
+# No secrets, no tokens, no organisation settings. This source repository is
+# public, so any caller of any visibility can use it — which is the point:
+# a private source cannot be called by public or internal repositories at all.
 #
 # WHY REUSABLE RATHER THAN A COPIED FILE. The detector has been wrong ten times
 # and will be wrong again. Vendoring it into 92 repos means every fix needs 92
@@ -103,11 +99,6 @@ on:
     # fixed. Declaring them optional moves the failure to the step below, which
     # says which secret is missing and what to do about it — still fail-closed,
     # but diagnosable.
-    secrets:
-      FORGE_BUILD_APP_ID:
-        required: false
-      FORGE_BUILD_PRIVATE_KEY:
-        required: false
 
 jobs:
   theater:
