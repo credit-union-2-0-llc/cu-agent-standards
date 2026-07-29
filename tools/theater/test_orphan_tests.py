@@ -544,6 +544,91 @@ class TestUncertaintyIsRecordedNotSwallowed(unittest.TestCase):
         self.assertIn("not scanned, not clean", r[0].message)
 
 
+class TestNonGatingIsNotCoverage(unittest.TestCase):
+    """
+    A test invocation inside a step that cannot fail the job is not coverage.
+
+    This class exists because the tool got it wrong on real code. ops-platform's
+    `reusable-scan.yml` runs each caller's configured test command in a step
+    marked `continue-on-error: true`, and 16 repositories call it. Once the tool
+    could resolve that workflow locally it saw `$TEST_CMD` execute, called those
+    repos WIRED, and reported CLEAN -- a false clean, the failure mode that
+    matters most here. Painted-Hills flipped from `orphaned` to `wired` in front
+    of me, which is the only reason I noticed.
+    """
+
+    def test_continue_on_error_step_is_not_coverage(self):
+        r = rows({
+            "package.json": '{"name":"a","scripts":{"test":"jest"}}',
+            "src/a.spec.ts": SPEC,
+            ".github/workflows/ci.yml":
+                "on: [push]\njobs:\n  t:\n    steps:\n"
+                "      - name: tests\n        continue-on-error: true\n"
+                "        run: pnpm test\n",
+        })["."]
+        self.assertEqual(r.verdict, "non_gating")
+        self.assertIn("cannot fail the job", r.message)
+
+    def test_a_normal_step_is_still_coverage(self):
+        """The FP half: continue-on-error on a NEIGHBOUR must not leak."""
+        v, _ = verdicts({
+            "package.json": '{"name":"a","scripts":{"test":"jest","lint":"eslint ."}}',
+            "src/a.spec.ts": SPEC,
+            ".github/workflows/ci.yml":
+                "on: [push]\njobs:\n  t:\n    steps:\n"
+                "      - name: lint\n        continue-on-error: true\n"
+                "        run: pnpm lint\n"
+                "      - name: tests\n        run: pnpm test\n",
+        })
+        self.assertEqual(v["."], "wired")
+
+    def test_the_ops_platform_reusable_scan_shape(self):
+        """
+        The real thing, reduced: a job-level `uses:` into a reusable workflow
+        whose test step is continue-on-error. Verdict must be non_gating, not
+        wired -- a failing test there leaves the check green.
+        """
+        import shutil
+        estate = tempfile.mkdtemp(prefix="t10-ops-")
+        other = write_tree({
+            ".github/workflows/reusable-scan.yml":
+                "on:\n  workflow_call:\njobs:\n  scan:\n    steps:\n"
+                "      - name: Run tests (if configured)\n"
+                "        continue-on-error: true\n"
+                "        run: npm test\n"
+                "      - name: Fail on critical\n        run: exit 0\n",
+        })
+        shutil.move(other, os.path.join(estate, "org__ops-platform"))
+        os.makedirs(os.path.join(estate, "org__ops-platform", ".git"), exist_ok=True)
+        caller = write_tree({
+            "package.json": '{"name":"a","scripts":{"test":"jest"}}',
+            "src/a.spec.ts": SPEC,
+            ".github/workflows/ops-scan.yml":
+                "on: [push]\njobs:\n  s:\n"
+                "    uses: org/ops-platform/.github/workflows/reusable-scan.yml@main\n",
+        })
+        r = {x.unit: x for x in ot.check_repo(
+            caller, "t", resolver=ot.make_resolver([estate]))}["."]
+        self.assertEqual(r.verdict, "non_gating")
+
+    def test_non_gating_call_poisons_a_gating_inner_step(self):
+        """
+        A blocking step inside a workflow invoked WITH continue-on-error still
+        cannot fail the job.
+        """
+        r = rows({
+            "package.json": '{"name":"a","scripts":{"test":"jest"}}',
+            "src/a.spec.ts": SPEC,
+            ".github/actions/verify/action.yml":
+                "runs:\n  using: composite\n  steps:\n    - run: pnpm test\n      shell: bash\n",
+            ".github/workflows/ci.yml":
+                "on: [push]\njobs:\n  t:\n    steps:\n"
+                "      - uses: ./.github/actions/verify\n"
+                "        continue-on-error: true\n",
+        })["."]
+        self.assertEqual(r.verdict, "non_gating")
+
+
 class TestCrossRepoResolution(unittest.TestCase):
     """
     `--resolve-repos`. Added after the estate sweep showed 126 caveats that were

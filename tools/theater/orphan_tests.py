@@ -196,8 +196,9 @@ Row = namedtuple(
     "covered_by unresolved noop_script",
 )
 
-FINDING_VERDICTS = ("orphaned", "noop", "partial")
-SEVERITY = {"orphaned": "high", "noop": "high", "partial": "medium"}
+FINDING_VERDICTS = ("orphaned", "noop", "partial", "non_gating")
+SEVERITY = {"orphaned": "high", "noop": "high", "partial": "medium",
+            "non_gating": "high"}
 
 # CONFIDENCE, AND WHY IT IS NOT A FOURTH VERDICT.
 #
@@ -221,63 +222,113 @@ CONFIDENCE = ("high", "medium")
 
 def _parse_workflow(text):
     """
-    Pull (shell_text, working_directory) pairs and `uses:` refs out of a
-    workflow. Indentation-driven and deliberately small.
+    Pull the shell commands and `uses:` refs out of a workflow, each tagged with
+    whether the step that carries it can actually FAIL THE JOB.
 
-    Not a YAML parser and not trying to be. It needs four things -- `run:`
-    bodies (inline and block), `uses:` values, `working-directory:` at step and
-    job-defaults level -- and a real parser buys nothing for those while adding
-    a dependency this tool is specifically built not to have.
+    Returns (runs, uses) where
+        runs = [(shell_text, working_directory, gating)]
+        uses = [(ref, gating)]
+
+    WHY GATING MATTERS, and why ignoring it made this tool lie. ops-platform's
+    `reusable-scan.yml` runs each caller's configured test command in a step
+    marked `continue-on-error: true`. Sixteen repositories point at it. Reading
+    that workflow and seeing `$TEST_CMD` execute, an earlier version of this tool
+    concluded those repos' tests were covered and reported them CLEAN -- when a
+    failing test there cannot turn the check red. A test invocation inside a step
+    that cannot fail is not coverage; it is the thing this tool exists to find.
+
+    Steps are buffered so `continue-on-error` attaches to the step it belongs to
+    rather than leaking across neighbours. A job-level `continue-on-error` (not
+    part of a step's list item) is applied to the whole file: over-broad, but it
+    errs toward reporting less coverage, and a false CLEAN is the failure mode
+    that matters here.
+
+    Still not a YAML parser. It needs run/uses/working-directory/
+    continue-on-error and nothing else.
     """
-    runs, uses = [], []
     lines = text.splitlines()
-    i = 0
-    cur_wd = ""           # nearest working-directory in scope
-    wd_indent = -1
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-        indent = len(line) - len(line.lstrip())
+    runs, uses = [], []
 
-        if not stripped or stripped.startswith("#"):
-            i += 1
+    STEP_KEY = re.compile(
+        r"^-\s+(name|uses|run|id|with|if|shell|env|working-directory|"
+        r"continue-on-error|timeout-minutes)\s*:")
+    job_level_coe = False
+
+
+    cur = None      # {"lines": [...], "wd": str}
+    cur_wd = ""
+
+    def flush(step):
+        if not step:
+            return
+        body = "\n".join(step["lines"])
+        coe = bool(re.search(r"^\s*(?:-\s+)?continue-on-error\s*:\s*true\s*$",
+                             body, re.M))
+        gating = not (coe or job_level_coe)
+        wd = step["wd"]
+        m = re.search(r"^\s*(?:-\s+)?working-directory\s*:\s*(.+?)\s*$", body, re.M)
+        if m:
+            wd = m.group(1).strip("'\"")
+        for ref in re.findall(r"^\s*(?:-\s+)?uses\s*:\s*(.+?)\s*$", body, re.M):
+            uses.append((ref.strip("'\""), gating))
+        # `run:` -- inline or block scalar
+        sl = step["lines"]
+        for idx, ln in enumerate(sl):
+            m = re.match(r"^(\s*)(?:-\s+)?run\s*:\s*(\|[-+]?|>[-+]?)?\s*(.*)$", ln)
+            if not m:
+                continue
+            ind, block, inline = len(m.group(1)), m.group(2), m.group(3)
+            if block:
+                buf = []
+                for nxt in sl[idx + 1:]:
+                    if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= ind:
+                        break
+                    buf.append(nxt)
+                runs.append(("\n".join(buf), wd, gating))
+            elif inline:
+                runs.append((inline, wd, gating))
+
+    for ln in lines:
+        st = ln.strip()
+        if not st or st.startswith("#"):
+            if cur:
+                cur["lines"].append(ln)
             continue
-
-        # A working-directory falls out of scope once indentation returns to or
-        # above the level it was declared at.
-        if wd_indent >= 0 and indent <= wd_indent and not stripped.startswith("working-directory:"):
-            if not stripped.startswith("-"):
-                pass  # keep; defaults blocks sit above steps
-        m = re.match(r"^(?:-\s+)?working-directory:\s*(.+?)\s*$", stripped)
+        if STEP_KEY.match(st):
+            flush(cur)
+            cur = {"lines": [ln], "wd": cur_wd}
+            continue
+        if cur is not None:
+            indent = len(ln) - len(ln.lstrip())
+            first_indent = len(cur["lines"][0]) - len(cur["lines"][0].lstrip())
+            if indent > first_indent:
+                cur["lines"].append(ln)
+                continue
+            flush(cur)
+            cur = None
+        # Outside a step. Two things live here:
+        #
+        # 1. A JOB-LEVEL `uses:` -- how a reusable workflow is called. It has no
+        #    leading dash, so the step regex above never sees it. Missing this
+        #    broke every cross-repo resolution: `jobs: {t: {uses: org/x/...}}`
+        #    simply vanished, and repos calling a reusable workflow that runs
+        #    their tests came back `orphaned`. Its gating is the JOB's.
+        # 2. defaults.run.working-directory, inherited by later steps.
+        # A `continue-on-error` HERE is the job's, not a step's -- job-level
+        # keys precede `steps:`, so this is set before any step is flushed.
+        # Detecting it in this branch is what keeps a lint step's flag from
+        # leaking onto the test step beside it.
+        if re.match(r"^continue-on-error\s*:\s*true\s*$", st):
+            job_level_coe = True
+            continue
+        m = re.match(r"^uses\s*:\s*(.+?)\s*$", st)
+        if m:
+            uses.append((m.group(1).strip("'\""), not job_level_coe))
+            continue
+        m = re.match(r"^working-directory\s*:\s*(.+?)\s*$", st)
         if m:
             cur_wd = m.group(1).strip("'\"")
-            wd_indent = indent
-            i += 1
-            continue
-
-        m = re.match(r"^(?:-\s+)?uses:\s*(.+?)\s*$", stripped)
-        if m:
-            uses.append(m.group(1).strip("'\""))
-            i += 1
-            continue
-
-        m = re.match(r"^(?:-\s+)?run:\s*(\|[-+]?|>[-+]?)?\s*(.*)$", stripped)
-        if m:
-            block, inline = m.group(1), m.group(2)
-            if block:
-                body, i = [], i + 1
-                while i < len(lines):
-                    nxt = lines[i]
-                    if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= indent:
-                        break
-                    body.append(nxt)
-                    i += 1
-                runs.append(("\n".join(body), cur_wd))
-            else:
-                runs.append((inline, cur_wd))
-                i += 1
-            continue
-        i += 1
+    flush(cur)
     return runs, uses
 
 
@@ -645,6 +696,7 @@ def check_repo(root, repo_name=None, resolver=None):
 
     wfdir = os.path.join(root, ".github", "workflows")
     covered, targeted, unresolved = set(), set(), []
+    nongating = set()   # invocations that run but CANNOT fail the job
     n_workflows = 0
     if os.path.isdir(wfdir):
         for f in sorted(os.listdir(wfdir)):
@@ -660,18 +712,22 @@ def check_repo(root, repo_name=None, resolver=None):
                 continue
             n_workflows += 1
             runs, uses = _parse_workflow(txt)
-            for body, wd in runs:
+            for body, wd, gating in runs:
                 c, t, u = analyse_command(body, wd, root, pkg_dirs)
-                covered |= c
+                (covered if gating else nongating).update(c)
                 targeted |= t
                 unresolved += [f"{f}: {x}" for x in u]
-            for ref in uses:
+            for ref, gating in uses:
                 inner = _classify_uses(ref, root)
                 if inner is not None:
                     iruns, _ = _parse_workflow(inner)
-                    for body, wd in iruns:
+                    for body, wd, inner_gating in iruns:
                         c, t, u = analyse_command(body, wd, root, pkg_dirs)
-                        covered |= c
+                        # Non-gating anywhere in the chain means non-gating: a
+                        # blocking step inside a workflow that was CALLED with
+                        # continue-on-error still cannot fail the job.
+                        (covered if (gating and inner_gating)
+                         else nongating).update(c)
                         targeted |= t
                         unresolved += [f"{f}->{ref}: {x}" for x in u]
                 elif ref.startswith("./"):
@@ -691,9 +747,10 @@ def check_repo(root, repo_name=None, resolver=None):
                         # The called workflow runs against THIS repo's checkout,
                         # so its commands are analysed with this repo's tree.
                         iruns, _ = _parse_workflow(body_txt)
-                        for b2, wd2 in iruns:
+                        for b2, wd2, inner_gating in iruns:
                             c, t, u = analyse_command(b2, wd2, root, pkg_dirs)
-                            covered |= c
+                            (covered if (gating and inner_gating)
+                             else nongating).update(c)
                             targeted |= t
                             unresolved += [f"{f}->{ref}: {x}" for x in u]
                 elif not BENIGN_USES.match(ref) and "@" in ref:
@@ -728,9 +785,22 @@ def check_repo(root, repo_name=None, resolver=None):
                      if any(covers_file([c], f) for f in u.test_files)])
         conf = "high" if not caveats else "medium"
 
+        ng_files = [f for f in u.test_files if covers_file(nongating, f)]
+
         if run_files and not dead:
             verdict, conf, noop = "wired", "high", None
             msg = f"all {len(run_files)} test file(s) covered by '{hit[0] or '.'}'"
+        elif not run_files and ng_files:
+            # These tests DO execute; the step running them just cannot turn the
+            # check red. Kept separate from `orphaned` because it is strictly
+            # more misleading -- there is a green check that cites them.
+            # ops-platform's reusable-scan.yml runs each caller's configured
+            # test command under continue-on-error, which is the shape 16 repos
+            # are in.
+            verdict, noop = "non_gating", None
+            msg = (f"{len(ng_files)} test file(s) ARE run, but only inside a step "
+                   f"that cannot fail the job (continue-on-error) -- the check "
+                   f"stays green when they fail")
         elif run_files:
             verdict, noop = "partial", None
             msg = (f"{len(dead)} of {len(u.test_files)} test file(s) are not "
