@@ -283,7 +283,7 @@ owner, reviewed quarterly."** That survives an examiner asking about it.
 
 ## The bugs that justify this tool
 
-**This toolchain has now lied to us ten times.** Every one is pinned by a named test. The list is
+**This toolchain has now lied to us seventeen times.** Every one is pinned by a named test. The list is
 kept in the README rather than in a commit log because it is the single most persuasive argument for
 the false-positive-regression rule, and because a tool that finds dishonest signals has no standing
 to be coy about its own.
@@ -300,8 +300,25 @@ to be coy about its own.
 | 8 | T7 inferred "is this scheduled?" from run history rather than the file | reported `cu2-platform/soc2-evidence-collector.yml` — deliberately migrated to an ACA Job and reduced to `workflow_dispatch` — as a dead SOC 2 control. **This one shipped, and was escalated as the top finding of the sweep** | `test_deliberately_descheduled_workflow_is_not_stale` |
 | 10 | The pre-commit ratchet was spelled `--diff-base HEAD` | `HEAD...HEAD` is always empty, so the hook passed with theater staged — a silent clean on every commit forever, which is the failure the ratchet exists to prevent, rebuilt inside the ratchet. Caught before shipping | `test_staged_mode_sees_the_index` |
 | 9 | T7 judged staleness against a fixed 30-day threshold | `ncua-query-api`'s cron fires Feb/May/Aug/Nov only; 69 days of silence was correct with the next window three weeks out. T7 now parses the cron and derives the cadence | `test_quarterly_cron_is_not_stale_at_69_days` |
+| 11 | T10 compared the runner's directory to the PACKAGE's directory | resistance-wine has no `pyproject.toml`, so all 104 Python tests attach to the repo root, while the workflow running them twice daily declares `working-directory: backend`. A suite that runs on every push and nightly was reported dead. Coverage is a property of the FILES | `test_working_directory_covers_tests_below_it_even_with_no_project_marker` |
+| 12 | T10 could not parse repeated `--filter` selectors | broflo's real command is `pnpm --filter './apps/**' --filter './packages/**' run test`; the second `--filter` landed where the script name was expected, so the whole invocation matched nothing and a fully-tested repo produced three findings, all false | `test_pnpm_path_glob_filter` |
+| 13 | T10 called jest's no-tests-is-fine flag a no-op script | `jest --pass…` **runs jest**. broflo's 28-file suite, executing on every push, was reported as a green check that cannot fail | `test_jest_pass_with_no_tests_is_still_a_runner` |
+| 14 | T10 called a *delegating* script a no-op | broflo's root `test` fans out to `apps/**`; CI runs it and two packages genuinely are tested. Claiming the check "cannot go red" was false — the root's own 22 Playwright specs are simply unreached, which is `orphaned`, a different thing | `test_a_delegating_root_script_is_not_a_noop` |
+| 15 | T10 read a script, recognised nothing, and called that proof of nothing | dev-studio's CI gate is `node tools/test-kit.mjs unit`, whose runner arrives as a spawn argument array (`["--import","tsx","--test",glob]`). 78 test files running on every push were reported unreachable **at high confidence**. Not recognising a runner is now a caveat, not a verdict | `test_unreadable_runner_inside_a_followed_script_lowers_confidence` |
+| 16 | T10 demoted a unit to `unknown` on any unresolved indirection anywhere in the repo | rolling the theater gate out to 88 repos put one unreadable cross-repo `uses:` into nearly every repo — so **the rollout silently disposed of true findings estate-wide**, including ops-platform's 145, already confirmed by hand. Swallowing a real finding and inventing a false one are the same error | `TestUncertaintyIsRecordedNotSwallowed` |
+| 17 | T10's cross-repo resolver returned the first checkout it found, not one containing the file | resolved `cu2-standards` to a Phase-1 clone predating the file, read nothing, and reported "in another repo" — while the answer sat on disk under a different path | `test_stale_checkout_without_the_file_says_so` |
 
-Six of those ten were found by *reading the sweep output and disbelieving it* rather than by a test.
+**Seven of the seventeen are T10's, and every one was found the same way: by running the detector
+against a repository whose answer was already known by hand, and refusing to accept the output.**
+Its unit tests — 48 of them, written before the first sweep — passed throughout. They pinned the
+shapes their author had thought of, which is all a test can ever do. Four of the seven were *false
+cleans*, the direction nobody investigates.
+
+Worth recording separately: as those seven were fixed, the estate count fell 56 → 51 → 49 → 41.
+Every correction removed findings. A detector's first number is its least trustworthy one, and the
+instinct to publish it is the thing to resist.
+
+Six of the first ten were found by *reading the sweep output and disbelieving it* rather than by a test.
 That is the part that does not automate — and bugs 8 and 9 were not caught even then. They were
 caught only when somebody moved to **act** on a finding and opened the workflow file, which was the
 first moment anyone looked at the source behind the count. Both `stale` rows in the first estate run
