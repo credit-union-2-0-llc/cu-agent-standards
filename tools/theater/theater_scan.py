@@ -299,6 +299,8 @@ def detect_t4(path, lines):
 # is what inflated the first sweep from 39 to 490.
 # ---------------------------------------------------------------------------
 
+JSON_ONLY_SKIP_RE = re.compile(r"passWithNoTests")
+
 SKIP_PATTERNS = [
     re.compile(r"\b(?:it|test|describe|context)\.skip\s*\("),
     re.compile(r"\bxit\s*\("),
@@ -321,12 +323,22 @@ def detect_t5(path, lines):
     ext = os.path.splitext(path)[1]
     if ext not in CODE_EXTS and ext != ".json":
         return []
+    # JSON is scanned ONLY for `passWithNoTests`, which is why it was included
+    # at all — it appears in jest config, not in code.
+    #
+    # THE FOURTEENTH PINNED BUG, found by dogfooding. Applying the code patterns
+    # to .json meant that this project's own committed inventory —
+    # sweep-results.json, verdicts_*.json — was detected as theater, because the
+    # `evidence` field of a recorded T5 finding literally contains the text
+    # `it.skip('...')`. 321 findings in one repo, every one a record OF a
+    # finding. Test-skip syntax cannot be executable code inside JSON.
+    patterns = [JSON_ONLY_SKIP_RE] if ext == ".json" else SKIP_PATTERNS
     out = []
     for i, raw in enumerate(lines, start=1):
         line = raw.rstrip("\n")
         if COMMENT_LINE_RE.match(line):
             continue
-        for rx in SKIP_PATTERNS:
+        for rx in patterns:
             if rx.search(line):
                 declared, reason = _declaration(line)
                 out.append(_mk(path, i, "T5", "medium",

@@ -177,6 +177,23 @@ class TestFalsePositives(unittest.TestCase):
                 self.assertFalse(ts.detect_t5("a.ts", lines(line)),
                                  f"prose about a skip is not a skip: {line.strip()}")
 
+    def test_t5_json_scanned_only_for_the_jest_flag(self):
+        """
+        THE FOURTEENTH PINNED BUG, found by dogfooding. This project commits its
+        own inventory as JSON, and the `evidence` field of a recorded T5 finding
+        literally contains the text of the skip it recorded. Applying the code
+        patterns to .json made the inventory of findings register as 321
+        findings. Test-skip syntax cannot be executable code inside JSON.
+        """
+        skip = "it" + ".skip"
+        rec = '  {"detector": "T5", "evidence": "' + skip + "('[D-09] pending', () => {})\"}"
+        self.assertFalse(ts.detect_t5("inventory.json", lines(rec)),
+                         "a JSON record OF a skip is not a skip")
+        flag = "pass" + "WithNoTests"
+        self.assertTrue(ts.detect_t5("jest.config.json",
+                                     lines('  "args": ["--' + flag + '"]')),
+                        f"the {flag} flag in JSON must still fire")
+
     def test_t5_still_fires_on_a_skip_with_a_trailing_comment(self):
         """The fix must only skip comment-*only* lines, not code carrying a comment."""
         line = "  it" + ".skip('flaky in CI', () => {})  // TODO: fix the fixture"
