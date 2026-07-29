@@ -141,6 +141,33 @@ def declares_schedule(text):
     return triggers == "schedule"
 
 
+def declares_push(text):
+    """
+    True when a workflow's trigger block declares `push`.
+
+    THE SAME BUG T7 HAD, CAUGHT ON T9's FIRST SWEEP. GitHub records
+    event=push runs against `workflow_call`-only workflows — zero jobs,
+    conclusion "failure" — and T9 counted them as a red default-branch CI. Four
+    of its first twenty findings were that, including ops-platform's
+    reusable-scan.yml, which has no push trigger at all and is invoked by six
+    other repositories.
+
+    Run history proves what fired. Only the file says what is DECLARED. Same
+    YAML 1.1 `on`-is-boolean trap as declares_schedule.
+    """
+    parsed = _safe_yaml(text)
+    if parsed is None or not isinstance(parsed, dict):
+        return None
+    triggers = parsed.get("on", parsed.get(True))
+    if triggers is None:
+        return False
+    if isinstance(triggers, dict):
+        return "push" in triggers
+    if isinstance(triggers, list):
+        return "push" in triggers
+    return triggers == "push"
+
+
 def _safe_yaml(text):
     """Parse YAML, or return None. Never returns {} — see the T3 rule."""
     try:
@@ -522,7 +549,8 @@ def classify_ci(repo, workflow_name, path, runs, as_of,
 CI_FINDING_KINDS = {"red"}
 
 
-def check_repo_ci(gh, repo, as_of, default_branch=None, runs_per_workflow=30, **kw):
+def check_repo_ci(gh, repo, as_of, default_branch=None, runs_per_workflow=30,
+                  clone_root=None, **kw):
     """Classify default-branch push CI for every real workflow in one repo."""
     try:
         if default_branch is None:
@@ -537,6 +565,18 @@ def check_repo_ci(gh, repo, as_of, default_branch=None, runs_per_workflow=30, **
         path = wf.get("path") or ""
         if DYNAMIC_PATH_RE.match(path):
             continue
+        # ONLY WORKFLOWS THAT DECLARE A PUSH TRIGGER. Anything else is not a
+        # default-branch CI, whatever the run history says.
+        declared, _ = _resolve_schedule(gh, repo, path, clone_root)
+        if declared is ORPHANED:
+            continue          # file deleted; T7 reports it as orphaned
+        text = _workflow_text(gh, repo, path, clone_root)
+        if text is not None and declares_push(text) is False:
+            out.append(CIHealth(repo, wf.get("name") or "", path, "not_push_triggered",
+                                "info", "Not a push-triggered workflow — T9 does not apply",
+                                0, None, 0, ""))
+            continue
+
         try:
             payload = gh.get(f"repos/{repo}/actions/workflows/{wf.get('id')}/runs"
                              f"?event=push&branch={default_branch}"
@@ -756,6 +796,29 @@ def _file_is_gone(clone_root, path):
     return not os.path.isfile(os.path.join(clone_root, path))
 
 
+def _workflow_text(gh, repo, path, clone_root=None):
+    """The workflow file's text, from a clone if given, else the API. None if unreadable."""
+    if not path:
+        return None
+    if clone_root:
+        local = os.path.join(clone_root, path)
+        if os.path.isfile(local):
+            with open(local, encoding="utf-8", errors="replace") as fh:
+                return fh.read()
+    try:
+        blob = gh.get(f"repos/{repo}/contents/{path}")
+    except GhError:
+        return None
+    import base64
+    content = blob.get("content")
+    if not isinstance(content, str):
+        return None
+    try:
+        return base64.b64decode(content).decode("utf-8", errors="replace")
+    except ValueError:
+        return None
+
+
 def _resolve_schedule(gh, repo, path, clone_root=None):
     """
     Returns (declared, crons). `declared` is True / False / None / ORPHANED;
@@ -890,7 +953,13 @@ def main(argv=None):
         rows = []
         for i, repo in enumerate(repos, start=1):
             sys.stderr.write(f"[{i}/{len(repos)}] {repo}\n")
-            rows += check_repo_ci(gh, repo, as_of, min_failures=args.min_ci_failures)
+            croot = None
+            if args.clones_dir:
+                cand = os.path.join(args.clones_dir, repo.replace("/", "__"))
+                if os.path.isdir(os.path.join(cand, ".git")):
+                    croot = cand
+            rows += check_repo_ci(gh, repo, as_of, clone_root=croot,
+                                  min_failures=args.min_ci_failures)
         findings = [r for r in rows if r.kind in CI_FINDING_KINDS]
         for r in sorted(findings, key=lambda x: -x.consecutive_push_failures):
             print(f"{r.repo}  {r.path or r.workflow}")

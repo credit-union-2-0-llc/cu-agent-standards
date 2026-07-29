@@ -746,5 +746,76 @@ class TestT9(unittest.TestCase):
         self.assertTrue(all("event=push" in p and "branch=main" in p for p in runq),
                         f"run query must filter server-side: {runq}")
 
+
+class TestT9PushTrigger(unittest.TestCase):
+    """
+    THE FIRST T9 FALSE-POSITIVE CLASS, caught by opening the first finding.
+
+    GitHub records event=push runs against `workflow_call`-only workflows —
+    zero jobs, conclusion "failure" — and T9 counted them as a red default-branch
+    CI. Four of its first twenty findings were that, the loudest being
+    ops-platform's reusable-scan.yml, which has no push trigger at all and is
+    called by six other repositories.
+
+    Run history proves what FIRED. Only the file says what is DECLARED. Exactly
+    the mistake T7 made with `stale`, repeated in a detector written after it.
+    """
+
+    def test_declares_push_handles_the_yaml_boolean_on_key(self):
+        self.assertTrue(wh.declares_push("on:\n  push:\n    branches: [main]\njobs: {}\n"))
+        self.assertTrue(wh.declares_push('"on":\n  push: {}\njobs: {}\n'))
+        self.assertTrue(wh.declares_push("on: [push, pull_request]\njobs: {}\n"))
+
+    def test_workflow_call_only_is_not_push_triggered(self):
+        self.assertFalse(wh.declares_push(
+            "on:\n  workflow_call:\n    inputs: {}\njobs: {}\n"))
+
+    def test_schedule_only_is_not_push_triggered(self):
+        self.assertFalse(wh.declares_push(
+            "on:\n  schedule:\n    - cron: '0 5 * * *'\n  workflow_dispatch:\njobs: {}\n"))
+
+    def test_malformed_is_unknown_not_false(self):
+        """Unparseable must not read as 'no push trigger' — unknown is its own state."""
+        self.assertIsNone(wh.declares_push("on:\n  push: [[[unclosed\n"))
+
+    def test_check_repo_ci_skips_a_workflow_call_only_workflow(self):
+        class CallOnly(_FakeGh):
+            def get(self, path, paginate=False):
+                if path.startswith("repos/acme/repo") and "/actions/" not in path \
+                   and "/contents/" not in path:
+                    return {"default_branch": "main"}
+                if "/contents/" in path:
+                    import base64
+                    body = "on:\n  workflow_call: {}\njobs: {}\n"
+                    return {"content": base64.b64encode(body.encode()).decode()}
+                if "/runs" in path:
+                    raise AssertionError("must not fetch runs for a non-push workflow")
+                return super().get(path, paginate)
+
+        rows = wh.check_repo_ci(CallOnly(), "acme/repo", at("2026-07-28"))
+        self.assertEqual(rows[0].kind, "not_push_triggered")
+        self.assertNotIn(rows[0].kind, wh.CI_FINDING_KINDS)
+
+    def test_a_real_push_workflow_is_still_evaluated(self):
+        """The fix must not disarm T9 on the workflows it exists for."""
+        class Pushy(_FakeGh):
+            def get(self, path, paginate=False):
+                if path.startswith("repos/acme/repo") and "/actions/" not in path \
+                   and "/contents/" not in path:
+                    return {"default_branch": "main"}
+                if "/contents/" in path:
+                    import base64
+                    body = "on:\n  push:\n    branches: [main]\njobs: {}\n"
+                    return {"content": base64.b64encode(body.encode()).decode()}
+                if "/runs" in path:
+                    return {"total_count": 5, "workflow_runs": [
+                        run("failure", f"2026-07-{d:02d}T00:00:00Z", event="push", number=d)
+                        for d in (28, 27, 26, 25, 24)]}
+                return super().get(path, paginate)
+
+        rows = wh.check_repo_ci(Pushy(), "acme/repo", at("2026-07-28"))
+        self.assertEqual(rows[0].kind, "red")
+        self.assertEqual(rows[0].consecutive_push_failures, 5)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
