@@ -1,0 +1,34 @@
+# Consumable from any repo:
+#
+#   repos:
+#     - repo: https://github.com/credit-union-2-0-llc/cu-agent-standards
+#       rev: main          # pin a SHA in real use
+#       hooks:
+#         - id: cu2-theater
+#         - id: cu2-sanitize
+#
+# `--staged` diffs the index, NOT `--diff-base HEAD` — HEAD...HEAD is always
+# empty, so that spelling passes with theater staged. Learned the hard way.
+
+- id: cu2-theater
+  name: CU2 theater gate (ratchet — new findings only)
+  description: Blocks verification theater introduced by this commit, ignores the backlog.
+  entry: python3 tools/theater/theater_scan.py . --profile gate --staged
+  language: system
+  pass_filenames: false
+  always_run: true
+
+- id: cu2-theater-tests
+  name: CU2 theater gate self-tests
+  entry: python3 tools/theater/test_theater_scan.py
+  language: system
+  pass_filenames: false
+  files: ^tools/theater/
+
+- id: cu2-sanitize
+  name: CU2 sanitize gate (internal profile)
+  description: Stops internal context leaving the repository.
+  entry: python3 tools/sanitize/cu2_sanitize_scan.py . --profile internal
+  language: system
+  pass_filenames: false
+  always_run: true
