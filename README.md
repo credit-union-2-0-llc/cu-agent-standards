@@ -37,13 +37,19 @@ python3 tools/theater/workflow_health.py OWNER/REPO        # T7 — needs the Gi
 
 ## The part worth reading
 
-[`tools/theater/README.md`](tools/theater/README.md) carries a ledger of **the eleven times this
+[`tools/theater/README.md`](tools/theater/README.md) carries a ledger of **the seventeen times this
 toolchain lied to us** — each one pinned by a named regression test.
 
 The first: a pattern meant to find skipped tests matched `exit(` as well as `xit(`, and reported 490
 skipped tests where there were 39. A 12× inflation, produced by the tool built to find inflated
-signals. Six of the eleven were caught not by tests but by reading the output and disbelieving it.
+signals. Six of the first ten were caught not by tests but by reading the output and disbelieving it.
 Two were caught later still — only when somebody moved to *act* on a finding and opened the file.
+Seven are T10's, found by running it against repositories whose answer was already known by hand;
+four of those were false *cleans*, the direction nobody investigates.
+
+This paragraph said "eleven" for six commits after the ledger reached seventeen. A stale count in the
+front door of a repository about signals that lie is the joke writing itself, and it is left recorded
+here rather than quietly corrected.
 
 We publish that list on purpose. A tool that argues checks lie has no standing to be coy about its
 own, and the ledger is more useful than the code.
