@@ -277,12 +277,33 @@ CODE_VALUE_RE = re.compile(
 
 CODE_ACCESSOR_RE = re.compile(r"(?:getenv|environ|\.get\b|\.env\b|process\.env)")
 
+# A CALL is not a literal.
+#
+# CODE_VALUE_RE works from an allowlist of module prefixes (os., process., self.
+# ...), so it only recognises code it was told about. `re.` was not on the list,
+# which made this scanner report two secrets in its OWN sibling detector:
+#
+#   tools/theater/orphan_tests.py:157  QUOTED_TOKEN_RE = re.compile(
+#   tools/theater/orphan_tests.py:252  STEP_KEY        = re.compile(
+#
+# Both are regex constants whose NAMES contain TOKEN and KEY. Extending the
+# prefix allowlist with `re.` would fix these two lines and leave the next
+# module — and the plain `SESSION_KEY = build_key()` shape — still wrong.
+#
+# Keying on the call syntax instead generalises: a secret is a literal, and a
+# literal does not contain a parenthesis. Real credential alphabets
+# ([A-Za-z0-9._/+-], base64, hex, sk- prefixes, PEM bodies) have no '(' in them,
+# so this cannot mask one.
+CALL_EXPRESSION_RE = re.compile(r"[A-Za-z_][\w.]*\(")
+
 
 def looks_like_a_literal_value(text):
     """False when the 'secret' is actually code, a reference, or a path."""
     if CODE_VALUE_RE.match(text):
         return False
     if CODE_ACCESSOR_RE.search(text):
+        return False
+    if CALL_EXPRESSION_RE.search(text):
         return False
     return True
 

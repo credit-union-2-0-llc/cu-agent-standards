@@ -1,0 +1,138 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI for the toolchain itself.
+#
+# Before this file, this repository had NO workflow that ran on push or
+# pull_request — `reusable-theater.yml` is `workflow_call`-only, so it never
+# fires here. The consequences were specific:
+#
+#   * Of 224 tests in tools/, only the 69 in test_theater_scan.py ever executed,
+#     and only inside OTHER repositories' gates — which fetch the detector from
+#     `main`. So they ran strictly AFTER merge, by which time all 86 adopting
+#     repositories were already tracking the change.
+#   * test_workflow_health.py (58 tests) and test_orphan_tests.py (52) had no
+#     runner anywhere. Neither did test_cu2_sanitize_scan.py (45).
+#   * The detector was never pointed at its own source.
+#
+# A toolchain that finds unrun tests in 86 repositories had 155 unrun tests of
+# its own. This file fixes that, and it deliberately does NOT call
+# reusable-theater.yml: that workflow fetches the detector from `main`, so a pull
+# request changing the detector would be judged by the version it replaces.
+# Everything below runs the code AS PROPOSED.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  self-tests:
+    name: Toolchain self-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # DISCOVERED, not listed. A hardcoded list is how test_workflow_health.py
+      # and test_orphan_tests.py came to have no runner: nothing objects when a
+      # file is absent from a list it was never added to. Discovery inverts that
+      # — a new suite runs the day it lands — and the floor catches the opposite
+      # failure, where a glob silently matches nothing.
+      - name: Run every test suite under tools/
+        run: |
+          set -euo pipefail
+
+          FLOOR=4   # 3 under tools/theater + 1 under tools/sanitize
+          SUITES=$(find tools -name 'test_*.py' -type f | sort)
+
+          # Counted without `grep -c`, which exits 1 on a zero count and would
+          # need a `|| true` to survive `set -e` — and a zero count is precisely
+          # the condition the floor below exists to catch, so swallowing the exit
+          # there would disable the check. (The first draft of this file used
+          # `grep -c . || true` and this repo's own T1 detector failed the pull
+          # request for it, which is the system working.)
+          if [ -z "$SUITES" ]; then
+            COUNT=0
+          else
+            COUNT=$(printf '%s\n' "$SUITES" | wc -l | tr -d ' ')
+          fi
+
+          echo "discovered $COUNT suite(s):"
+          printf '%s\n' "$SUITES" | sed 's/^/  /'
+
+          if [ "$COUNT" -lt "$FLOOR" ]; then
+            echo "::error::found only $COUNT test suite(s), expected at least $FLOOR."
+            echo "::error::Either a suite was deleted or the glob stopped matching."
+            echo "::error::Refusing to report a pass on a suite list that shrank."
+            exit 1
+          fi
+
+          # No `|| true`, and no early exit either: every suite runs so one
+          # failure cannot hide the state of the others, and the tally prints
+          # before the step decides.
+          failed=0
+          while IFS= read -r suite; do
+            [ -n "$suite" ] || continue
+            echo "::group::$suite"
+            if python3 "$suite"; then
+              echo "PASS  $suite"
+            else
+              echo "::error::FAIL  $suite"
+              failed=$((failed + 1))
+            fi
+            echo "::endgroup::"
+          done <<< "$SUITES"
+
+          echo "suites run: $COUNT, failed: $failed"
+          [ "$failed" -eq 0 ]
+
+  self-gate:
+    name: Theater gate (self, ratchet)
+    runs-on: ubuntu-latest
+    # Never let a detector whose own tests fail sit in judgement on anything.
+    needs: self-tests
+    steps:
+      # fetch-depth: 0 is required, not tidiness — ratchet mode resolves a base
+      # ref to diff against, and a shallow clone cannot. The scanner exits 2
+      # naming this rather than degrading to "no changes".
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Theater gate on this repo's own source (ratchet)
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}"
+          # A first push to a branch, or a force-push, can leave `before` as the
+          # null SHA. Fall back rather than skip — an unusual event must not
+          # silently disable the gate.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE="HEAD~1"
+          fi
+          echo "ratchet base: $BASE"
+          python3 tools/theater/theater_scan.py . \
+            --profile gate --diff-base "$BASE" --tracked-only
+
+      - name: Sanitize gate — nothing sensitive may land in a PUBLIC repo
+        run: |
+          set -euo pipefail
+          # This repository is public and is the scrubbed mirror, so the scan that
+          # produces it should also police it. It was exit 1 on its own source
+          # until the call-expression false positive was fixed alongside this
+          # file; `internal` is the secret+pii profile.
+          python3 tools/sanitize/cu2_sanitize_scan.py . --profile internal --tracked-only
+
+      - name: Standing backlog (non-blocking)
+        if: always()
+        run: |
+          set -euo pipefail
+          # Keeps the standing number visible so a green ratchet is never read as
+          # a clean repository. Non-blocking by intent, and `always()` so it is
+          # still printed when the gate above fails — that is when it is most
+          # useful. Not `|| true`: this step genuinely has no verdict to give.
+          python3 tools/theater/theater_scan.py . \
+            --profile all --report --tracked-only --quiet
