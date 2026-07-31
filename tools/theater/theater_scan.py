@@ -69,14 +69,14 @@ MIN_REASON_CHARS = 12
 
 SEVERITIES = ("high", "medium")
 
-DETECTORS = ("T1", "T2", "T3", "T4", "T5", "T6", "T8", "T9")
+DETECTORS = ("T1", "T2", "T3", "T4", "T5", "T6", "T8", "T11")
 
 PROFILES = {
     # The set worth failing a build over.
     "gate": {"T1", "T2", "T3", "T4", "T6", "T8"},
     "all": set(DETECTORS),
 }
-# T9 is deliberately NOT in `gate`. It was added with ~36 existing candidates measured
+# T11 is deliberately NOT in `gate`. It was added with ~36 existing candidates measured
 # across 11 repos; gating on a class before its backlog is triaged is how a gate gets
 # switched off. Promote it once the standing count is declared or fixed — same path T5
 # has never been promoted along, and for the same reason.
@@ -542,6 +542,8 @@ NON_GATING_SCAN_RE = [
 ]
 
 
+# NB the detector id is T11, not T9. T7 and T9 belong to workflow_health.py and T10 to
+# orphan_tests.py — the taxonomy is shared across every tool under tools/, not per-file.
 ECHO_SUPPRESSION_RE = re.compile(r"\|\|\s*echo\b")
 # A `|| echo` that emits a GitHub annotation is a VISIBLE soft gate: it shows up in the
 # run summary and the Files-changed view, so a human can see it fired. Plain-text echo
@@ -552,8 +554,8 @@ ECHO_SUPPRESSION_RE = re.compile(r"\|\|\s*echo\b")
 ANNOTATION_RE = re.compile(r"\|\|\s*echo\s*[\'\"]?::(?:warning|error|notice)\b")
 
 
-def detect_t9(path, lines):
-    """T9 — exit status discarded by `|| echo <plain text>`.
+def detect_t11(path, lines):
+    """T11 — exit status discarded by `|| echo <plain text>`.
 
     T1's SUPPRESSION_RE matches `|| true`, `|| :`, `|| exit 0` and `; true`. It does NOT
     match `|| echo`, which swallows an exit status exactly as completely. That gap hid a
@@ -579,7 +581,7 @@ def detect_t9(path, lines):
         if _is_emitted_literal(code):
             continue
         declared, reason = _declaration(line)
-        out.append(_mk(path, i, "T9", "medium",
+        out.append(_mk(path, i, "T11", "medium",
                        "exit status discarded by `|| echo` — the step reports success "
                        "and prints a message no one is required to read",
                        line, declared, reason))
@@ -815,8 +817,8 @@ def scan_file(path, active, root, known_scripts):
         findings += detect_t6(rel, lines, known_scripts)
     if "T8" in active:
         findings += detect_t8(rel, lines)
-    if "T9" in active:
-        findings += detect_t9(rel, lines)
+    if "T11" in active:
+        findings += detect_t11(rel, lines)
     return findings
 
 
