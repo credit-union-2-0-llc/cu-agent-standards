@@ -127,6 +127,69 @@ class TestDetectorsFire(unittest.TestCase):
         self.assertEqual(len(f), 1)
         self.assertIn("typecheck", f[0].message)
 
+    def test_t9_echo_suppression_hides_an_exit_status(self):
+        """
+        THE GAP THAT HID A REAL INSTANCE OF THE ORIGINATING INCIDENT. T1's
+        SUPPRESSION_RE matches `|| true`, `|| :`, `|| exit 0` and `; true` — not
+        `|| echo`, which swallows an exit status just as completely. Onramp-'s
+        domain-setup.yml ended `az containerapp hostname bind` with
+        `|| echo "Bind may need retry after DNS fully propagates"`, and the step named
+        "Verify domain binding" then printed a tick unconditionally. Identical shape to
+        kirk-helper #365, and T1 could not see it.
+        """
+        wf = ('            --validation-method CNAME '
+              '|| echo "Bind may need retry after DNS fully propagates"')
+        self.assertEqual(ts.detect_t1(WF, lines(wf)), [], "T1 still must not match || echo")
+        f = ts.detect_t9(WF, lines(wf))
+        self.assertEqual(len(f), 1)
+        self.assertEqual((f[0].detector, f[0].severity), ("T9", "medium"))
+
+    def test_t9_visible_annotation_is_a_soft_gate_not_a_silent_one(self):
+        """
+        `|| echo '::warning::'` surfaces in the run summary, so a human can see it fired.
+        CU2 deliberately KEPT `alembic check || echo '::warning::'` on exactly that
+        reasoning while fixing the hostname bind. Encoding the distinction here so the
+        detector cannot quietly erase a decision that was made on purpose.
+        """
+        for form in ("          alembic check || echo '::warning::drift detected'",
+                     '          foo || echo "::error::bad"',
+                     "          bar || echo ::notice::hi"):
+            with self.subTest(form=form):
+                self.assertEqual(ts.detect_t9(WF, lines(form)), [])
+
+    def test_t9_is_reachable_through_the_scan_entry_point(self):
+        """
+        BUG 18, caught by disbelieving a zero. detect_t9 was correct and its unit tests
+        passed, but the call landed INSIDE the `if "T8" in active:` block — so
+        `--detector T9` produced active={T9}, T8 was inactive, detect_t9 never ran, and
+        the CLI reported a confident CLEAN across the whole estate. A detector that is
+        unreachable from the dispatch is worse than one that does not exist: it answers
+        "nothing here" with authority. Unit-testing the function cannot see this; only
+        exercising scan_file can.
+        """
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            wfdir = os.path.join(d, ".github", "workflows")
+            os.makedirs(wfdir)
+            f = os.path.join(wfdir, "x.yml")
+            with open(f, "w") as fh:
+                fh.write('      - run: deploy || echo "may need a retry"\n')
+            # T9 alone — the exact invocation that silently found nothing.
+            found = ts.scan_file(f, {"T9"}, d, set())
+            self.assertTrue(any(x.detector == "T9" for x in found),
+                            "T9 must fire when it is the ONLY active detector")
+            # and it must not require T8 to be active
+            self.assertEqual([x for x in ts.scan_file(f, {"T8"}, d, set())
+                              if x.detector == "T9"], [],
+                             "T9 must not piggyback on T8's guard")
+
+    def test_t9_is_not_in_the_gate_profile(self):
+        """Added with ~36 existing candidates measured across 11 repos. Gating on a class
+        before its backlog is triaged is how a gate gets switched off."""
+        self.assertIn("T9", ts.DETECTORS)
+        self.assertNotIn("T9", ts.PROFILES["gate"])
+        self.assertIn("T9", ts.PROFILES["all"])
+
     def test_every_detector_has_coverage(self):
         covered = set()
         for name in dir(self):
@@ -141,6 +204,43 @@ class TestDetectorsFire(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestFalsePositives(unittest.TestCase):
+
+    def test_a_declaration_cannot_exempt_its_own_line(self):
+        """
+        THE BUG. IDEMPOTENT_PATTERNS and SUPPRESSION_RE matched the WHOLE line, comment
+        included. A `# theater-ok:` reason that quoted the command it was describing
+        satisfied the idempotent allowlist and exempted its own line — so the finding
+        vanished from --inventory entirely, passing for the wrong reason. Caught 2026-07-30
+        by noticing the inventory reported 3 declarations where 4 were written; it would
+        have flipped back to a finding the moment anyone reworded the comment.
+        """
+        line = ('            --resource-group "$RG" || true  # theater-ok: '
+                'az containerapp hostname add is idempotent and on the exempt list')
+        f = ts.detect_t1(WF, lines(line))
+        self.assertEqual(len(f), 1, "the comment must not exempt the code")
+        self.assertTrue(f[0].declared, "and it must still register as declared")
+
+    def test_prose_mentioning_a_suppression_is_not_a_finding(self):
+        """A trailing comment that merely talks about `|| true` is documentation."""
+        self.assertEqual(
+            ts.detect_t1(WF, lines('          run: make build  # never write || true here')),
+            [])
+
+    def test_suppression_inside_an_emitted_printf_literal_is_not_this_step(self):
+        """
+        cu2-billing/seed-kv.yml builds an ACA Job manifest with printf. The `|| true` in
+        the emitted text governs a container that runs later, elsewhere — this step's own
+        command is printf, which can and does fail on its own merits. Reported as a T1 in
+        the 2026-07-30 sweep and triaged as a false positive by hand.
+        """
+        line = ("            printf '            tdnf install -y -q gawk grep sed "
+                ">/dev/null 2>&1 || true\\n'")
+        self.assertEqual(ts.detect_t1(WF, lines(line)), [])
+
+    def test_a_real_suppression_on_a_printf_line_still_fires(self):
+        """FP GUARD for the guard: printf itself being suppressed is still a finding."""
+        line = "          printf 'hello' || true"
+        self.assertEqual(len(ts.detect_t1(WF, lines(line))), 1)
 
     def test_xit_does_not_match_exit(self):
         """
