@@ -129,6 +129,67 @@ class TestRulesFire(unittest.TestCase):
 # Placeholders and other negatives must NOT fire
 # ---------------------------------------------------------------------------
 
+class TestCallExpressionIsNotALiteral(unittest.TestCase):
+    """
+    THE EIGHTEENTH LEDGER ENTRY. This scanner reported two secrets in its own
+    sibling detector:
+
+        tools/theater/orphan_tests.py:157  QUOTED_TOKEN_RE = re.compile(
+        tools/theater/orphan_tests.py:252  STEP_KEY        = re.compile(
+
+    Regex constants whose NAMES contain TOKEN and KEY. `CODE_VALUE_RE` works from
+    an allowlist of module prefixes and `re.` was not on it, so the scanner could
+    only recognise code it had been told about.
+
+    Fixed by keying on call SYNTAX rather than extending the prefix list: a
+    secret is a literal and a literal has no parenthesis in it. That generalises
+    to the next module and to bare calls like `build_key()`.
+    """
+
+    def test_the_two_real_false_positives(self):
+        for line in ("QUOTED_TOKEN_RE = re.compile(", "STEP_KEY = re.compile("):
+            with self.subTest(line=line):
+                self.assertFalse(hits(".env-style sensitive KEY=VALUE", line))
+
+    def test_call_shapes_are_not_literals(self):
+        for value in ("re.compile(", "build_key()", "load_secret(path)",
+                      "json.loads(", "Config.from_env()"):
+            with self.subTest(value=value):
+                self.assertFalse(gate.looks_like_a_literal_value(value))
+
+    def test_generalises_beyond_the_re_module(self):
+        # The point of the fix: an unknown module prefix must still be code.
+        self.assertFalse(hits(".env-style sensitive KEY=VALUE",
+                              "SESSION_KEY = somelib.derive("))
+
+    # ---- false-positive guard on the guard -------------------------------
+    # A validator that rejects everything would also pass the tests above, so
+    # pin that real credential shapes are STILL flagged.
+
+    def test_real_secrets_are_still_flagged(self):
+        # Values are concatenated, not written whole: this file is itself scanned
+        # by test_gate_does_not_flag_its_own_source, and a secret-SHAPED literal
+        # here fails that check. It caught exactly this while the tests below
+        # were being written. Also note no value may contain a placeholder
+        # marker — is_placeholder() correctly discards anything saying EXAMPLE,
+        # which is why AWS's documentation key cannot be used as a positive.
+        for line in ("API_KEY = '" + "AKIA" + "J7Q2M4XZ" + "R9T1V3WB" + "'",
+                     "SECRET_TOKEN=" + "sk-" + "9f3a2b7c" + "1d8e4a6f",
+                     "DB_PASSWORD = " + "hunter2hunter2"):
+            with self.subTest(line=line):
+                self.assertTrue(hits(".env-style sensitive KEY=VALUE", line))
+
+    def test_no_credential_alphabet_contains_a_parenthesis(self):
+        # Why the rule is safe: '(' is not in any real credential alphabet.
+        for value in ("AKIA" + "J7Q2M4XZ" + "R9T1V3WB",
+                      "sk-" + "9f3a2b7c" + "1d8e4a6f",
+                      "hunter2hunter2",
+                      "dGhpcyBpcyBhIHRlc3Q=",
+                      "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"):
+            with self.subTest(value=value):
+                self.assertTrue(gate.looks_like_a_literal_value(value))
+
+
 class TestNegatives(unittest.TestCase):
 
     def test_placeholder_email_locals_are_ignored(self):
