@@ -77,6 +77,7 @@ exists so a verdict can be reproduced against the date it was made.
 | **T6** | CI invokes an npm/pnpm script no `package.json` defines | high | yes |
 | **T7** | A scheduled workflow everyone believes is running, and is not | high | `workflow_health.py` |
 | **T8** | A scanner configured so it cannot fail — `exit-code: '0'`, `soft_fail: true` | high | yes |
+| **T9** | Exit status discarded by `\|\| echo <plain text>` | medium | no |
 
 ### T7's kinds
 
@@ -283,7 +284,7 @@ owner, reviewed quarterly."** That survives an examiner asking about it.
 
 ## The bugs that justify this tool
 
-**This toolchain has now lied to us seventeen times.** Every one is pinned by a named test. The list is
+**This toolchain has now lied to us twenty times.** Every one is pinned by a named test. The list is
 kept in the README rather than in a commit log because it is the single most persuasive argument for
 the false-positive-regression rule, and because a tool that finds dishonest signals has no standing
 to be coy about its own.
@@ -307,6 +308,9 @@ to be coy about its own.
 | 15 | T10 read a script, recognised nothing, and called that proof of nothing | dev-studio's CI gate is `node tools/test-kit.mjs unit`, whose runner arrives as a spawn argument array (`["--import","tsx","--test",glob]`). 78 test files running on every push were reported unreachable **at high confidence**. Not recognising a runner is now a caveat, not a verdict | `test_unreadable_runner_inside_a_followed_script_lowers_confidence` |
 | 16 | T10 demoted a unit to `unknown` on any unresolved indirection anywhere in the repo | rolling the theater gate out to 88 repos put one unreadable cross-repo `uses:` into nearly every repo — so **the rollout silently disposed of true findings estate-wide**, including ops-platform's 145, already confirmed by hand. Swallowing a real finding and inventing a false one are the same error | `TestUncertaintyIsRecordedNotSwallowed` |
 | 17 | T10's cross-repo resolver returned the first checkout it found, not one containing the file | resolved `cu2-standards` to a Phase-1 clone predating the file, read nothing, and reported "in another repo" — while the answer sat on disk under a different path | `test_stale_checkout_without_the_file_says_so` |
+| 18 | `IDEMPOTENT_PATTERNS` and `SUPPRESSION_RE` matched the WHOLE line, comment included | a `# theater-ok:` reason that quoted the command it described satisfied the idempotent allowlist and **exempted its own line** — the finding vanished from `--inventory` entirely, passing for the wrong reason and ready to flip back the moment anyone reworded the comment. Caught by noticing the inventory said 3 declarations where 4 were written | `test_a_declaration_cannot_exempt_its_own_line` |
+| 19 | T1 flagged a suppression inside an emitted `printf` string literal | `cu2-billing/seed-kv.yml` builds an ACA Job manifest with `printf`; the `\|\| true` in the emitted text governs a container that runs later, elsewhere. Triaged as a false positive by hand in the 2026-07-30 sweep | `test_suppression_inside_an_emitted_printf_literal_is_not_this_step` |
+| 20 | T9's dispatch call landed inside `if "T8" in active:` | `--detector T9` produced `active={T9}`, so T8 was inactive, `detect_t9` never ran, and the CLI reported a confident **CLEAN across the whole estate** while 30 real findings sat there. The detector was correct and its unit tests passed — only the wiring was wrong. **An unreachable detector is worse than a missing one: it answers "nothing here" with authority** | `test_t9_is_reachable_through_the_scan_entry_point` |
 
 **Seven of the seventeen are T10's, and every one was found the same way: by running the detector
 against a repository whose answer was already known by hand, and refusing to accept the output.**

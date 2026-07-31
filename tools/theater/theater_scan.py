@@ -69,13 +69,17 @@ MIN_REASON_CHARS = 12
 
 SEVERITIES = ("high", "medium")
 
-DETECTORS = ("T1", "T2", "T3", "T4", "T5", "T6", "T8")
+DETECTORS = ("T1", "T2", "T3", "T4", "T5", "T6", "T8", "T9")
 
 PROFILES = {
     # The set worth failing a build over.
     "gate": {"T1", "T2", "T3", "T4", "T6", "T8"},
     "all": set(DETECTORS),
 }
+# T9 is deliberately NOT in `gate`. It was added with ~36 existing candidates measured
+# across 11 repos; gating on a class before its backlog is triaged is how a gate gets
+# switched off. Promote it once the standing count is declared or fixed — same path T5
+# has never been promoted along, and for the same reason.
 
 SKIP_DIRS = {
     ".git", "node_modules", "__pycache__", ".venv", "venv",
@@ -125,6 +129,43 @@ def _is_idempotent(line):
     return any(p.search(line) for p in IDEMPOTENT_PATTERNS)
 
 
+# A trailing comment must not participate in code matching. Two real bugs came from
+# matching the whole line: a `# theater-ok:` reason that happened to quote
+# "az containerapp hostname add" satisfied IDEMPOTENT_PATTERNS and exempted its own
+# line, which then vanished from --inventory entirely (declared-by-prose); and prose
+# mentioning `|| true` in a trailing comment reads as a suppression.
+_COMMENT_SPLIT_RE = re.compile(r"""
+    ^(?P<code>(?:[^'"#]|'[^']*'|"[^"]*")*)   # code, with quoted spans kept intact
+    (?P<comment>\#.*)?$                       # first unquoted # starts the comment
+""", re.VERBOSE)
+
+
+def _split_comment(line):
+    """Split a shell line into (code, comment). A `#` inside quotes is not a comment."""
+    m = _COMMENT_SPLIT_RE.match(line)
+    if not m:
+        return line, ""
+    return m.group("code") or "", m.group("comment") or ""
+
+
+# `printf '... || true ...'` / `echo "... || true ..."` — the suppression is INSIDE a
+# string literal being emitted, so it belongs to whatever consumes that output, not to
+# this step's exit status. cu2-billing/seed-kv.yml emits an ACA Job manifest this way and
+# the `|| true` in it governs a container that runs later, elsewhere.
+_EMITTED_LITERAL_RE = re.compile(r"^\s*(?:printf|echo)\s+[\'\"]")
+
+
+def _is_emitted_literal(code):
+    """True when the line's own command is printf/echo and the suppression sits in its
+    quoted argument rather than in an executed command."""
+    if not _EMITTED_LITERAL_RE.match(code):
+        return False
+    # Strip quoted spans; if no suppression survives, it was only ever inside the literal.
+    bare = re.sub(r"'[^']*'", "", code)
+    bare = re.sub(r'"[^"]*"', "", bare)
+    return not SUPPRESSION_RE.search(bare)
+
+
 def detect_t1(path, lines):
     if not _is_workflow(path):
         return []
@@ -134,9 +175,12 @@ def detect_t1(path, lines):
         stripped = line.strip()
         if stripped.startswith("#"):
             continue
-        if not SUPPRESSION_RE.search(line):
+        code, _comment = _split_comment(line)
+        if not SUPPRESSION_RE.search(code):
             continue
-        if _is_idempotent(line):
+        if _is_idempotent(code):
+            continue
+        if _is_emitted_literal(code):
             continue
         declared, reason = _declaration(line)
         out.append(_mk(path, i, "T1", "high",
@@ -498,6 +542,50 @@ NON_GATING_SCAN_RE = [
 ]
 
 
+ECHO_SUPPRESSION_RE = re.compile(r"\|\|\s*echo\b")
+# A `|| echo` that emits a GitHub annotation is a VISIBLE soft gate: it shows up in the
+# run summary and the Files-changed view, so a human can see it fired. Plain-text echo
+# goes to stdout only, where it is indistinguishable from `|| true` unless somebody opens
+# the log. That distinction is the whole basis of this detector, and it is the same call
+# CU2 made deliberately for `alembic check || echo '::warning::'` — kept, because the
+# annotation is visible — versus the kirk-helper #365 hostname bind, which was fixed.
+ANNOTATION_RE = re.compile(r"\|\|\s*echo\s*[\'\"]?::(?:warning|error|notice)\b")
+
+
+def detect_t9(path, lines):
+    """T9 — exit status discarded by `|| echo <plain text>`.
+
+    T1's SUPPRESSION_RE matches `|| true`, `|| :`, `|| exit 0` and `; true`. It does NOT
+    match `|| echo`, which swallows an exit status exactly as completely. That gap hid a
+    real instance of the originating incident: Onramp-'s domain-setup.yml ended its
+    `az containerapp hostname bind` with `|| echo "Bind may need retry after DNS fully
+    propagates"`, and the step named "Verify domain binding" then printed a tick
+    unconditionally. Identical shape to kirk-helper #365, invisible to T1.
+    """
+    if not _is_workflow(path):
+        return []
+    out = []
+    for i, raw in enumerate(lines, start=1):
+        line = raw.rstrip("\n")
+        if line.strip().startswith("#"):
+            continue
+        code, _comment = _split_comment(line)
+        if not ECHO_SUPPRESSION_RE.search(code):
+            continue
+        if ANNOTATION_RE.search(code):
+            continue           # visible annotation — a soft gate, not a silent one
+        if _is_idempotent(code):
+            continue
+        if _is_emitted_literal(code):
+            continue
+        declared, reason = _declaration(line)
+        out.append(_mk(path, i, "T9", "medium",
+                       "exit status discarded by `|| echo` — the step reports success "
+                       "and prints a message no one is required to read",
+                       line, declared, reason))
+    return out
+
+
 def detect_t8(path, lines):
     if not _is_workflow(path):
         return []
@@ -727,6 +815,8 @@ def scan_file(path, active, root, known_scripts):
         findings += detect_t6(rel, lines, known_scripts)
     if "T8" in active:
         findings += detect_t8(rel, lines)
+    if "T9" in active:
+        findings += detect_t9(rel, lines)
     return findings
 
 
