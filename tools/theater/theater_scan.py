@@ -19,6 +19,8 @@ Seven detectors:
     T6  phantom npm/pnpm script   CI invokes a script that does not exist
     T7  red scheduled workflow    (needs the GitHub API — see workflow_health.py)
     T8  non-gating scanner        exit-code: '0' / soft_fail: true on a scan
+    T12 unchecked HTTP failure  `if (!res.ok) return []` — a failed request
+                                returns the same value as an empty result
 
 WHY DECLARATION, NOT CLEVERNESS
 
@@ -54,7 +56,20 @@ from collections import Counter, namedtuple
 # Declared suppressions
 # ---------------------------------------------------------------------------
 
-DECLARATION_RE = re.compile(r"#\s*theater-ok:\s*(?P<reason>.+?)\s*$")
+# `#` for YAML/Python, `//` and `/* */` for JS/TS.
+#
+# Only `#` was accepted, so the declared-suppression convention has NEVER worked in a
+# .ts/.js/.tsx file — for T3 and T4 as much as for T12. That is consistent with the
+# estate census: all 39 declaration lines found across 9 repositories sit in GitHub
+# workflow YAML, and not one is in application code. The convention was documented in
+# SUPPRESSIONS.md as available everywhere while being silently unusable in half the
+# estate's languages.
+#
+# Worse than merely unrecognised: for T12 a `//`-commented declaration prevented the
+# finding from being detected AT ALL rather than annotating it, so declaring one
+# deleted it from the count.
+DECLARATION_RE = re.compile(
+    r"(?:#|//|/\*)\s*theater-ok:\s*(?P<reason>.+?)\s*(?:\*/)?\s*$")
 
 # A reason that explains nothing. Rejected so the convention cannot decay into
 # a rubber stamp.
@@ -69,7 +84,7 @@ MIN_REASON_CHARS = 12
 
 SEVERITIES = ("high", "medium")
 
-DETECTORS = ("T1", "T2", "T3", "T4", "T5", "T6", "T8", "T11")
+DETECTORS = ("T1", "T2", "T3", "T4", "T5", "T6", "T8", "T11", "T12")
 
 PROFILES = {
     # The set worth failing a build over.
@@ -628,6 +643,121 @@ def _declaration(line):
     return True, reason
 
 
+# ---------------------------------------------------------------------------
+# T12 — HTTP failure branch that returns an empty value instead of raising
+# ---------------------------------------------------------------------------
+#
+# THE GAP THIS CLOSES. T3 only looks inside `except`/`catch`, so it cannot see the
+# branch that actually fires in a browser: `fetch` does NOT reject on 4xx/5xx, it
+# resolves with `ok: false`. A wrapper written as
+#
+#     const res = await apiFetch(url);
+#     if (!res.ok) return [];
+#
+# never throws, so there is no catch block for T3 to find — and the caller receives
+# the same `[]` for "the server returned 500" as for "there are no rows".
+#
+# Found by hand in xdi-implementations-os: 28 sites of exactly this shape across
+# apps/web/src/app/dashboard/**, none visible to T3, in a repo whose `apiFetch`
+# never throws on a non-2xx. Fixing only that repo's catch blocks would have
+# produced a clean T3 count over a UI that still renders empty tables when the API
+# is down.
+#
+# NOT in the `gate` profile, for the same reason T11 is not: it lands with a real
+# and unmeasured backlog, and a detector that turns 88 repos red on day one gets
+# switched off rather than acted on. Promote once the standing count is declared.
+HTTP_FAIL_COND_RE = re.compile(
+    r"""^\s*if\s*\(?\s*
+        (?:
+            !\s*[A-Za-z_$][\w$]*\s*(?:\.|\?\.)ok\b
+          | [A-Za-z_$][\w$]*\s*(?:\.|\?\.)ok\s*===?\s*false
+          | [A-Za-z_$][\w$]*\s*(?:\.|\?\.)status\s*
+                (?:!==?\s*(?:200|201|204)\b|>=\s*(?:400|300)\b)
+        )
+    """,
+    re.VERBOSE)
+
+# Returning an empty COLLECTION, null/undefined, or nothing at all. Deliberately NOT
+# `return false` and NOT `return { error }`: a boolean or an error object is a
+# sentinel a caller can branch on, which is a different and defensible design.
+# Flagging those would bury the real finding in noise.
+HTTP_FAIL_EMPTY_RE = re.compile(
+    r"""^\s*return\s*
+        (?:\[\s*\]|\{\s*\}|null|undefined|''|""|``|)\s*;?\s*$""",
+    re.VERBOSE)
+
+# An escape hatch that makes the failure observable is fine and must not be flagged.
+HTTP_FAIL_OK_RE = re.compile(
+    r"\b(?:throw|reject|process\.exit|assert|captureException|notifyError|"
+    r"setError|toast|console\.(?:error|warn))\b")
+
+JS_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
+
+
+def detect_t12(path, lines):
+    """T12 — a non-2xx response returns the same empty value as "no data"."""
+    if os.path.splitext(path)[1] not in JS_EXTS:
+        return []
+    if TEST_PATH_RE.search(path):
+        return []                      # a test asserting this shape is not the defect
+    out = []
+    for i, raw in enumerate(lines, start=1):
+        line = raw.rstrip("\n")
+        if COMMENT_LINE_RE.match(line):
+            continue
+        if not HTTP_FAIL_COND_RE.match(line):
+            continue
+
+        # Body: the rest of this line, else the next significant lines up to the
+        # closing brace. Handles `if (!res.ok) return [];` and the braced form.
+        after = line.split(")", 1)[1] if ")" in line else ""
+        body = [after.strip().lstrip("{").strip()]
+        j = i
+        while j < len(lines) and len(body) < 4:
+            nxt = lines[j].rstrip("\n")
+            j += 1
+            if not nxt.strip():
+                continue
+            body.append(nxt.strip())
+            if nxt.strip().startswith("}"):
+                break
+
+        joined = " ".join(b for b in body if b)
+        if HTTP_FAIL_OK_RE.search(joined):
+            continue                   # raises, rejects, or reports — observable
+        # Trailing braces/semicolons are stripped before matching: the single-line
+        # braced form `if (r.status !== 200) { return {}; }` leaves a dangling `}` on
+        # the extracted body, which silently defeated the match. It was the one shape
+        # of five that the first version missed, and it is the most common one in the
+        # xdi sites this detector was written for.
+        def _strip_tail(b):
+            # A trailing `// ...` comment must come off FIRST, or a declared site is
+            # not merely undeclared — it is not FOUND. `if (!res.ok) return []; //
+            # theater-ok: ...` failed to match at all, so declaring a T12 silently
+            # deleted the finding instead of annotating it. That is the worst outcome
+            # for a declaration convention: the count drops and nothing records why.
+            b = re.split(r"//", b, 1)[0]
+            return b.rstrip().rstrip("}").rstrip().rstrip(";").rstrip()
+        empty = next((b for b in body
+                      if b and HTTP_FAIL_EMPTY_RE.match(" " + _strip_tail(b))), None)
+        if empty is None:
+            continue
+
+        declared, reason = _declaration(line)
+        if not declared:
+            for b in body:
+                d, r = _declaration(b)
+                if d:
+                    declared, reason = d, r
+                    break
+        out.append(_mk(path, i, "T12", "high",
+                       "non-2xx response returns an empty value — fetch does not "
+                       "reject on 4xx/5xx, so the caller cannot tell a failed request "
+                       "from an empty result",
+                       (line + " " + empty).strip(), declared, reason))
+    return out
+
+
 def _mk(path, line, detector, severity, message, evidence, declared, reason):
     evidence = evidence.strip()
     if len(evidence) > 160:
@@ -819,6 +949,8 @@ def scan_file(path, active, root, known_scripts):
         findings += detect_t8(rel, lines)
     if "T11" in active:
         findings += detect_t11(rel, lines)
+    if "T12" in active:
+        findings += detect_t12(rel, lines)
     return findings
 
 
