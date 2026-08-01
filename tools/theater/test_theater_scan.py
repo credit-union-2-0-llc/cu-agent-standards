@@ -190,6 +190,120 @@ class TestDetectorsFire(unittest.TestCase):
         self.assertNotIn("T11", ts.PROFILES["gate"])
         self.assertIn("T11", ts.PROFILES["all"])
 
+    # ── T12 ────────────────────────────────────────────────────────────────
+    #
+    # The class T3 structurally cannot see: `fetch` does not reject on 4xx/5xx, so
+    # `if (!res.ok) return []` never enters a catch block. Measured on
+    # xdi-implementations-os: 44 T12 sites against 37 T3 — the invisible class is
+    # LARGER than the tracked one in that repo.
+
+    TS = "apps/web/src/lib/api.ts"
+
+    def test_t12_fires_on_the_canonical_shape(self):
+        f = ts.detect_t12(self.TS, lines("  if (!res.ok) return [];"))
+        self.assertEqual(len(f), 1)
+        self.assertEqual(f[0].detector, "T12")
+        self.assertEqual(f[0].severity, "high")
+
+    def test_t12_all_five_observed_forms(self):
+        for form in (
+            "  if (!res.ok) return [];",                        # bare, same line
+            "  if (!r?.ok) return undefined;",                  # optional chaining
+            "  if (r.status !== 200) { return {}; }",           # braced, same line
+            "  if (r.status >= 400) return;",                   # bare return
+            "  if (res.ok === false) return null;",             # explicit comparison
+        ):
+            with self.subTest(form=form):
+                self.assertTrue(ts.detect_t12(self.TS, lines(form)), form)
+
+    def test_t12_braced_multiline_form(self):
+        f = ts.detect_t12(self.TS, lines(
+            "  if (!res.ok) {\n"
+            "    return null;\n"
+            "  }"))
+        self.assertEqual(len(f), 1)
+
+    # ── false positives ────────────────────────────────────────────────────
+
+    def test_t12_throwing_is_not_a_finding(self):
+        """The correct fix must not itself be flagged, or the detector fights it."""
+        self.assertEqual(
+            ts.detect_t12(self.TS, lines("  if (!res.ok) throw new Error(res.status);")), [])
+
+    def test_t12_reporting_the_failure_is_not_a_finding(self):
+        self.assertEqual(ts.detect_t12(self.TS, lines(
+            "  if (!res.ok) { console.error('failed', res.status); return []; }")), [])
+
+    def test_t12_a_sentinel_a_caller_can_branch_on_is_not_a_finding(self):
+        """`false` and `{ error }` are designs, not silent-empties."""
+        for form in ("  if (!res.ok) return false;",
+                     "  if (!res.ok) return { error: res.status };"):
+            with self.subTest(form=form):
+                self.assertEqual(ts.detect_t12(self.TS, lines(form)), [], form)
+
+    def test_t12_ignores_non_js_files(self):
+        self.assertEqual(ts.detect_t12("backend/app/x.py",
+                                       lines("  if (!res.ok) return [];")), [])
+
+    def test_t12_ignores_test_files(self):
+        """A test asserting this shape is describing the defect, not committing it."""
+        self.assertEqual(ts.detect_t12("apps/web/src/lib/api.spec.ts",
+                                       lines("  if (!res.ok) return [];")), [])
+
+    def test_t12_respects_a_declaration(self):
+        f = ts.detect_t12(self.TS, lines(
+            "  if (!res.ok) return []; // theater-ok: 404 is the documented "
+            "\"no such tenant\" answer and the caller checks a separate loaded flag"))
+        self.assertEqual(len(f), 1)
+        self.assertTrue(f[0].declared, "a declared T12 must still be FOUND, marked declared")
+
+    def test_declaration_works_with_a_js_comment_marker(self):
+        """`//` and `/* */`, not just `#`.
+
+        Only `#` was accepted, so the convention had never worked in a .ts/.js file —
+        for T3 and T4 as much as T12. All 39 declaration lines in the estate census
+        are in workflow YAML, which is consistent with it being unusable elsewhere.
+        """
+        for form in ("// theater-ok: ",
+                     "/* theater-ok: ",
+                     "  //theater-ok: "):
+            with self.subTest(form=form):
+                d, r = ts._declaration(
+                    "  if (!res.ok) return []; " + form +
+                    "404 is the documented \"no such tenant\" answer and the caller "
+                    "checks a separate loaded flag")
+                self.assertTrue(d, f"{form!r} should be a valid declaration marker")
+                self.assertIn("no such tenant", r or "")
+
+    def test_declaration_still_works_with_a_hash(self):
+        """The FP guard: the YAML/Python form must not regress."""
+        d, r = ts._declaration(
+            "  - run: pnpm audit || true  # theater-ok: report-only; the SARIF gate "
+            "below is the enforcing step")
+        self.assertTrue(d)
+
+    def test_a_generic_js_declaration_still_does_not_count(self):
+        d, r = ts._declaration("  if (!res.ok) return []; // theater-ok: known issue")
+        self.assertFalse(d, "a generic reason must not satisfy the convention")
+
+    def test_t12_is_not_in_the_gate_profile(self):
+        """44 existing candidates in one repo alone. Gating a class before its backlog
+        is triaged is how a gate gets switched off rather than acted on — same
+        reasoning as T11."""
+        self.assertIn("T12", ts.DETECTORS)
+        self.assertNotIn("T12", ts.PROFILES["gate"])
+        self.assertIn("T12", ts.PROFILES["all"])
+
+    def test_t12_is_reachable_through_the_scan_entry_point(self):
+        import tempfile, os as _os
+        with tempfile.TemporaryDirectory() as d:
+            f = _os.path.join(d, "api.ts")
+            with open(f, "w") as fh:
+                fh.write("export async function g() {\n  if (!res.ok) return [];\n}\n")
+            found = [x for x in ts.scan_file(f, {"T12"}, d, set()) if x.detector == "T12"]
+            self.assertEqual(len(found), 1,
+                             "T12 must fire when it is the ONLY active detector")
+
     def test_every_detector_has_coverage(self):
         covered = set()
         for name in dir(self):
