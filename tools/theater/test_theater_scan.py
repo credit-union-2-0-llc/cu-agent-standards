@@ -127,7 +127,7 @@ class TestDetectorsFire(unittest.TestCase):
         self.assertEqual(len(f), 1)
         self.assertIn("typecheck", f[0].message)
 
-    def test_t9_echo_suppression_hides_an_exit_status(self):
+    def test_t11_echo_suppression_hides_an_exit_status(self):
         """
         THE GAP THAT HID A REAL INSTANCE OF THE ORIGINATING INCIDENT. T1's
         SUPPRESSION_RE matches `|| true`, `|| :`, `|| exit 0` and `; true` — not
@@ -140,11 +140,11 @@ class TestDetectorsFire(unittest.TestCase):
         wf = ('            --validation-method CNAME '
               '|| echo "Bind may need retry after DNS fully propagates"')
         self.assertEqual(ts.detect_t1(WF, lines(wf)), [], "T1 still must not match || echo")
-        f = ts.detect_t9(WF, lines(wf))
+        f = ts.detect_t11(WF, lines(wf))
         self.assertEqual(len(f), 1)
-        self.assertEqual((f[0].detector, f[0].severity), ("T9", "medium"))
+        self.assertEqual((f[0].detector, f[0].severity), ("T11", "medium"))
 
-    def test_t9_visible_annotation_is_a_soft_gate_not_a_silent_one(self):
+    def test_t11_visible_annotation_is_a_soft_gate_not_a_silent_one(self):
         """
         `|| echo '::warning::'` surfaces in the run summary, so a human can see it fired.
         CU2 deliberately KEPT `alembic check || echo '::warning::'` on exactly that
@@ -155,13 +155,13 @@ class TestDetectorsFire(unittest.TestCase):
                      '          foo || echo "::error::bad"',
                      "          bar || echo ::notice::hi"):
             with self.subTest(form=form):
-                self.assertEqual(ts.detect_t9(WF, lines(form)), [])
+                self.assertEqual(ts.detect_t11(WF, lines(form)), [])
 
-    def test_t9_is_reachable_through_the_scan_entry_point(self):
+    def test_t11_is_reachable_through_the_scan_entry_point(self):
         """
-        BUG 18, caught by disbelieving a zero. detect_t9 was correct and its unit tests
+        BUG 20, caught by disbelieving a zero. detect_t9 was correct and its unit tests
         passed, but the call landed INSIDE the `if "T8" in active:` block — so
-        `--detector T9` produced active={T9}, T8 was inactive, detect_t9 never ran, and
+        `--detector T11` produced active={T11}, T8 was inactive, detect_t11 never ran, and
         the CLI reported a confident CLEAN across the whole estate. A detector that is
         unreachable from the dispatch is worse than one that does not exist: it answers
         "nothing here" with authority. Unit-testing the function cannot see this; only
@@ -174,21 +174,21 @@ class TestDetectorsFire(unittest.TestCase):
             f = os.path.join(wfdir, "x.yml")
             with open(f, "w") as fh:
                 fh.write('      - run: deploy || echo "may need a retry"\n')
-            # T9 alone — the exact invocation that silently found nothing.
-            found = ts.scan_file(f, {"T9"}, d, set())
-            self.assertTrue(any(x.detector == "T9" for x in found),
-                            "T9 must fire when it is the ONLY active detector")
+            # T11 alone — the exact invocation that silently found nothing.
+            found = ts.scan_file(f, {"T11"}, d, set())
+            self.assertTrue(any(x.detector == "T11" for x in found),
+                            "T11 must fire when it is the ONLY active detector")
             # and it must not require T8 to be active
             self.assertEqual([x for x in ts.scan_file(f, {"T8"}, d, set())
-                              if x.detector == "T9"], [],
-                             "T9 must not piggyback on T8's guard")
+                              if x.detector == "T11"], [],
+                             "T11 must not piggyback on T8's guard")
 
-    def test_t9_is_not_in_the_gate_profile(self):
+    def test_t11_is_not_in_the_gate_profile(self):
         """Added with ~36 existing candidates measured across 11 repos. Gating on a class
         before its backlog is triaged is how a gate gets switched off."""
-        self.assertIn("T9", ts.DETECTORS)
-        self.assertNotIn("T9", ts.PROFILES["gate"])
-        self.assertIn("T9", ts.PROFILES["all"])
+        self.assertIn("T11", ts.DETECTORS)
+        self.assertNotIn("T11", ts.PROFILES["gate"])
+        self.assertIn("T11", ts.PROFILES["all"])
 
     def test_every_detector_has_coverage(self):
         covered = set()
