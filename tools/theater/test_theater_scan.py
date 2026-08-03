@@ -90,6 +90,22 @@ class TestDetectorsFire(unittest.TestCase):
         src = "try:\n    sync()\nexcept Exception:\n    pass"
         self.assertTrue(ts.detect_t3("job.py", lines(src)))
 
+    def test_t3_except_opener_with_trailing_comment_is_still_recognised(self):
+        """`except FooError:  # noqa: BLE001` used to fail HANDLER_RE outright — the
+        trailing comment broke its `$`-anchored exact match, so the swallow below it
+        was completely invisible (not undeclared, unscanned). Found live in
+        misty-9000's cu3_client.py."""
+        src = "try:\n    x()\nexcept FooError:  # noqa: BLE001\n    pass"
+        f = ts.detect_t3("app.py", lines(src))
+        self.assertEqual(len(f), 1)
+
+    def test_t3_pass_with_trailing_comment_is_still_recognised(self):
+        """`pass  # note` used to fail SWALLOW_RE outright, for the same reason.
+        Found live in several misty-9000 route files."""
+        src = "try:\n    x()\nexcept Exception:\n    pass  # swallow on purpose"
+        f = ts.detect_t3("app.py", lines(src))
+        self.assertEqual(len(f), 1)
+
     def test_t4_f821_suppressed(self):
         f = ts.detect_t4("pyproject.toml", lines('ignore = ["E501", "F821"]'))
         self.assertEqual(len(f), 1)
@@ -223,7 +239,35 @@ class TestDetectorsFire(unittest.TestCase):
             "  }"))
         self.assertEqual(len(f), 1)
 
+    def test_t12_declaration_reason_containing_an_escape_keyword_still_finds_the_site(self):
+        """A `theater-ok` REASON explaining that the scanner doesn't recognise this
+        app's local helper (e.g. "...doesn't see this repo's local toast helper...")
+        used to satisfy HTTP_FAIL_OK_RE itself — the whole un-stripped body,
+        comment included, was checked for the escape-hatch keywords before any
+        comment was removed. The prose describing the gap became indistinguishable
+        from the gap being closed, and the finding vanished before declaration was
+        ever checked. Found live in dev-studio's RbacClient.tsx (word: setError)
+        and NotificationsForm.tsx (word: toast)."""
+        f = ts.detect_t12(self.TS, lines(
+            "  if (!res.ok) {\n"
+            "    flash({kind: 'err', msg: 'failed'});\n"
+            "    return []; // theater-ok: scanner doesn't recognise this repo's "
+            "local toast helper, which already renders a visible banner\n"
+            "  }"))
+        self.assertEqual(len(f), 1)
+        self.assertTrue(f[0].declared)
+
     # ── false positives ────────────────────────────────────────────────────
+
+    def test_t12_a_real_escape_call_in_code_is_still_recognised_as_observable(self):
+        """False-positive guard: an ACTUAL `toast.error(...)` call in code (not a
+        comment merely mentioning the word) must still suppress the finding — the
+        fix must not stop recognising the real escape hatch."""
+        self.assertEqual(ts.detect_t12(self.TS, lines(
+            "  if (!res.ok) {\n"
+            "    toast.error('failed to load');\n"
+            "    return [];\n"
+            "  }")), [])
 
     def test_t12_throwing_is_not_a_finding(self):
         """The correct fix must not itself be flagged, or the detector fights it."""
@@ -618,6 +662,28 @@ class TestDeclaration(unittest.TestCase):
         code, out = run([tree, "--inventory"])
         self.assertEqual(code, 0)
         self.assertIn("RISK-123", out)
+
+    def test_t3_trailing_comment_declaration_now_works(self):
+        """A `theater-ok` comment on the SAME line as `return {}` used to make the
+        line stop matching EMPTY_RETURN_RE entirely (the trailing text broke the
+        exact-line match) — the finding vanished UNDECLARED rather than being
+        properly suppressed, the worst outcome for the convention. This was the
+        first bug found this session (misty-9000's fang_batch_matcher.py) and is
+        now fixed generally: a same-line trailing declaration is equivalent to one
+        on the preceding line."""
+        src = ("try:\n    x()\nexcept Exception:\n"
+               "    return {}  # theater-ok: already logged above, not silently swallowed")
+        f = ts.detect_t3("app.py", lines(src))
+        self.assertEqual(len(f), 1)
+        self.assertTrue(f[0].declared)
+
+    def test_strip_code_comment_respects_quotes(self):
+        """False-positive guard: a `#` or `//` inside a string literal must not be
+        mistaken for a comment start."""
+        self.assertEqual(ts._strip_code_comment('    x = "a // b # c"'),
+                         '    x = "a // b # c"')
+        self.assertEqual(ts._strip_code_comment("    pass  # note").strip(), "pass")
+        self.assertEqual(ts._strip_code_comment("    pass  // note").strip(), "pass")
 
 
 # ---------------------------------------------------------------------------

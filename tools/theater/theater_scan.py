@@ -267,15 +267,46 @@ EMPTY_RETURN_RE = re.compile(r"^\s*return\s*(?:\[\s*\]|\{\s*\}|\[\s*\]\s*;|\{\s*
 SWALLOW_RE = re.compile(r"^\s*pass\s*$")
 
 
+def _strip_code_comment(line):
+    """Strip a trailing `#...` or `//...` comment (whichever appears first, outside
+    a quoted string) so T3's exact-match regexes see the code, not prose glued onto
+    the same line. Three real, previously-invisible findings forced this:
+    `except FooError:  # noqa: BLE001` failed HANDLER_RE (the trailing comment broke
+    the `$` anchor, so the opener was never recognised at all); `pass  # explanation`
+    failed SWALLOW_RE the same way; and `return []  # theater-ok: reason` failed
+    EMPTY_RETURN_RE, which made a DECLARATION delete its own finding instead of
+    annotating it — the single worst outcome for the convention. All three are now
+    findable regardless of what a trailing comment says; `_declaration()` still runs
+    against the ORIGINAL (unstripped) line so a same-line `theater-ok` is read
+    correctly once the code beneath it is recognised."""
+    in_squote = in_dquote = False
+    i, n = 0, len(line)
+    while i < n:
+        c = line[i]
+        if in_squote:
+            in_squote = c != "'"
+        elif in_dquote:
+            in_dquote = c != '"'
+        elif c == "'":
+            in_squote = True
+        elif c == '"':
+            in_dquote = True
+        elif c == "#" or (c == "/" and i + 1 < n and line[i + 1] == "/"):
+            return line[:i]
+        i += 1
+    return line
+
+
 def detect_t3(path, lines):
     if os.path.splitext(path)[1] not in CODE_EXTS:
         return []
     out = []
     for i, raw in enumerate(lines, start=1):
         line = raw.rstrip("\n")
+        code = _strip_code_comment(line)
 
         # Same-line form: `catch { return []; }` / `except Exception: return []`
-        m = HANDLER_INLINE_RE.match(line)
+        m = HANDLER_INLINE_RE.match(code)
         if m and (EMPTY_RETURN_RE.match(" " + m.group("body").rstrip("}").strip())
                   or SWALLOW_RE.match(" " + m.group("body").rstrip("}").strip())):
             declared, reason = _declaration(line)
@@ -286,7 +317,7 @@ def detect_t3(path, lines):
             continue
 
         # Block form: a handler opener within the previous 4 significant lines.
-        if not (EMPTY_RETURN_RE.match(line) or SWALLOW_RE.match(line)):
+        if not (EMPTY_RETURN_RE.match(code) or SWALLOW_RE.match(code)):
             continue
         window, j = [], i - 2
         while j >= 0 and len(window) < 4:
@@ -294,10 +325,11 @@ def detect_t3(path, lines):
             if prev.strip():
                 window.append(prev)
             j -= 1
-        openers = [w for w in window if HANDLER_RE.match(w)]
+        window_code = [_strip_code_comment(w) for w in window]
+        openers = [w for w in window_code if HANDLER_RE.match(w)]
         if not openers:
             continue
-        if SWALLOW_RE.match(line) and _expected_exception_handler(path, openers[0]):
+        if SWALLOW_RE.match(code) and _expected_exception_handler(path, openers[0]):
             continue
         declared, reason = _declaration(line)
         if not declared:
@@ -306,7 +338,7 @@ def detect_t3(path, lines):
                 if d:
                     declared, reason = d, r
                     break
-        kind = "returns empty" if EMPTY_RETURN_RE.match(line) else "swallows the exception"
+        kind = "returns empty" if EMPTY_RETURN_RE.match(code) else "swallows the exception"
         out.append(_mk(path, i, "T3", "high",
                        f"Exception handler {kind} — the failure becomes indistinguishable "
                        "from a legitimate empty result",
@@ -722,9 +754,6 @@ def detect_t12(path, lines):
             if nxt.strip().startswith("}"):
                 break
 
-        joined = " ".join(b for b in body if b)
-        if HTTP_FAIL_OK_RE.search(joined):
-            continue                   # raises, rejects, or reports — observable
         # Trailing braces/semicolons are stripped before matching: the single-line
         # braced form `if (r.status !== 200) { return {}; }` leaves a dangling `}` on
         # the extracted body, which silently defeated the match. It was the one shape
@@ -738,6 +767,19 @@ def detect_t12(path, lines):
             # for a declaration convention: the count drops and nothing records why.
             b = re.split(r"//", b, 1)[0]
             return b.rstrip().rstrip("}").rstrip().rstrip(";").rstrip()
+
+        # HTTP_FAIL_OK_RE must run against comment-stripped text too: two real sites
+        # (dev-studio's RbacClient.tsx, xdi's SowPanel.tsx/TaskDefinitionEditor.tsx)
+        # wrote a `theater-ok` REASON that happened to contain one of this regex's own
+        # literal keywords ("...scanner can't see the setErr/toast side-effect...") —
+        # explaining why the code ISN'T recognised as observable accidentally made the
+        # PROSE match the regex that looks for real observable-failure code, and the
+        # whole finding vanished before declaration was ever checked. Matching against
+        # `joined` pre-strip conflated "the code calls toast()" with "a human wrote the
+        # word toast in a comment" — those must not be the same signal.
+        joined = " ".join(_strip_tail(b) for b in body if b)
+        if HTTP_FAIL_OK_RE.search(joined):
+            continue                   # raises, rejects, or reports — observable
         empty = next((b for b in body
                       if b and HTTP_FAIL_EMPTY_RE.match(" " + _strip_tail(b))), None)
         if empty is None:
