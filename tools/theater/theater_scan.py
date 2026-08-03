@@ -266,6 +266,16 @@ HANDLER_INLINE_RE = re.compile(r"^\s*(?:\}\s*)?(?:except\b[^:]*:|catch\s*(?:\([^
 EMPTY_RETURN_RE = re.compile(r"^\s*return\s*(?:\[\s*\]|\{\s*\}|\[\s*\]\s*;|\{\s*\}\s*;)\s*;?\s*$")
 SWALLOW_RE = re.compile(r"^\s*pass\s*$")
 
+# A `class`/`def` line is never itself a handler opener, but unlike an ordinary
+# statement it marks a hard scope boundary: the backward window must not cross
+# it to attribute a `pass`/`return` to some unrelated except/catch further back.
+# Real case: `class BudgetExceeded(Exception):\n    pass` sitting a few blank
+# lines below an unrelated `except Exception as exc:` block in the same file --
+# the window found that distant except within its 4-line cap (skipping the two
+# blank lines) and flagged the class body's own trivial `pass` as a swallowed
+# exception. A class/def's `pass` is that construct's body, never a handler's.
+_BLOCK_BOUNDARY_RE = re.compile(r"^\s*(?:class\s|def\s|async\s+def\s)")
+
 
 def _strip_code_comment(line):
     """Strip a trailing `#...` or `//...` comment (whichever appears first, outside
@@ -323,7 +333,10 @@ def detect_t3(path, lines):
         while j >= 0 and len(window) < 4:
             prev = lines[j].rstrip("\n")
             if prev.strip():
+                prev_code = _strip_code_comment(prev)
                 window.append(prev)
+                if _BLOCK_BOUNDARY_RE.match(prev_code) and not HANDLER_RE.match(prev_code):
+                    break  # crossed into an unrelated class/def; stop looking further back
             j -= 1
         window_code = [_strip_code_comment(w) for w in window]
         openers = [w for w in window_code if HANDLER_RE.match(w)]

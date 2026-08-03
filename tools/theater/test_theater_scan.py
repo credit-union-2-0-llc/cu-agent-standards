@@ -547,6 +547,45 @@ class TestFalsePositives(unittest.TestCase):
                "    c=3\n    d=4\n    return []")
         self.assertFalse(ts.detect_t3("app.py", lines(src)))
 
+    def test_t3_does_not_cross_a_class_boundary_to_find_a_distant_handler(self):
+        """Real false positive found live in dev-studio's forge_diagnose_job.py:
+        `class BudgetExceeded(Exception): pass` sat 6 lines below an unrelated
+        `except Exception as exc:` block (separated by two blank lines) — inside
+        the 4-line window, so the class body's own trivial `pass` was flagged as
+        a swallowed exception. A class/def boundary must stop the backward scan
+        even when it would otherwise fit inside the window."""
+        src = (
+            "def f():\n"
+            "    try:\n"
+            "        g()\n"
+            "    except Exception as exc:\n"
+            "        _log(f'failed: {exc}')\n"
+            "        return None\n"
+            "\n"
+            "\n"
+            "class BudgetExceeded(Exception):\n"
+            "    pass\n"
+        )
+        self.assertEqual(ts.detect_t3("app.py", lines(src)), [])
+
+    def test_t3_still_flags_a_swallow_that_is_genuinely_inside_the_handler(self):
+        """False-positive guard for the boundary fix: a `pass` that IS the
+        except handler's own body, with a class/def appearing *before* the
+        except block (not between it and the pass), must still be flagged."""
+        src = (
+            "class Foo:\n"
+            "    pass\n"
+            "\n"
+            "\n"
+            "def f():\n"
+            "    try:\n"
+            "        g()\n"
+            "    except Exception:\n"
+            "        pass\n"
+        )
+        f = ts.detect_t3("app.py", lines(src))
+        self.assertEqual(len(f), 1)
+
     def test_t4_ignores_style_only_suppressions(self):
         """F401 and E501 are preferences. F821 is a runtime crash. Not the same."""
         self.assertFalse(ts.detect_t4("pyproject.toml", lines('ignore = ["E501", "F401"]')))
