@@ -1016,9 +1016,14 @@ def build_parser():
                     "what everyone believes they check.")
     p.add_argument("target", nargs="?", default=".")
     p.add_argument("--profile", choices=sorted(PROFILES), default="gate",
-                   help="gate = T1,T2,T3,T4,T6 (default); all = adds T5")
+                   help="gate = T1,T2,T3,T4,T6,T8 (default, safe to fail a build on); "
+                        "all = every detector, including T5/T11/T12 whose backlogs "
+                        "are not yet triaged fleet-wide")
     p.add_argument("--detector", action="append", choices=DETECTORS,
-                   help="restrict to specific detector(s); repeatable")
+                   help="restrict to exactly these detector(s), overriding --profile "
+                        "entirely; repeatable. To scan a detector excluded from the "
+                        "default gate profile (T5/T11/T12), pass it here directly — "
+                        "no need to also pass --profile all")
     p.add_argument("--report", action="store_true",
                    help="print findings and a summary but always exit 0")
     p.add_argument("--inventory", action="store_true",
@@ -1046,7 +1051,16 @@ def main(argv=None):
 
     active = PROFILES[args.profile]
     if args.detector:
-        active = active & set(args.detector)
+        # An explicit --detector is an override, not a narrowing within
+        # whatever profile happens to be active. T11/T12 are deliberately
+        # excluded from the default "gate" profile so an untriaged backlog
+        # can't disable the whole build gate — but intersecting an explicit
+        # `--detector T12` against that exclusion silently produced an EMPTY
+        # active set and a confident CLEAN. Same failure shape as BUG 20
+        # (T11 unreachable via the T8 dispatch guard), one layer up: a
+        # detector that is unreachable from CLI arg parsing is worse than
+        # one that does not exist.
+        active = set(args.detector)
 
     root = target if os.path.isdir(target) else "."
     allow, allow_errors = load_allowlist(target)

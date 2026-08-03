@@ -348,6 +348,29 @@ class TestDetectorsFire(unittest.TestCase):
             self.assertEqual(len(found), 1,
                              "T12 must fire when it is the ONLY active detector")
 
+    def test_explicit_detector_flag_overrides_gate_profile_exclusion(self):
+        """
+        THE FIFTH PINNED BUG. T12 (like T11) is deliberately excluded from the
+        default "gate" profile so an untriaged backlog can't disable the whole
+        build gate — but `main()` computed `active = PROFILES[args.profile] &
+        set(args.detector)`, so an explicit `--detector T12` with no --profile
+        (default "gate") intersected down to an EMPTY active set. `--detector`
+        is documented as "restrict to specific detector(s)"; a user typing it
+        has explicitly asked for that detector, not asked to further narrow
+        whatever the default profile happens to allow. This is BUG 20's exact
+        shape one layer up the stack (CLI parsing instead of scan_file
+        dispatch): a detector unreachable from its own explicit flag, reporting
+        a confident CLEAN. Found live: multiple parallel theater-fix runs
+        across the CU2 fleet invoked `--detector T3 --detector T12` with no
+        --profile and silently never checked T12 on any of them.
+        """
+        tree = write_tree({"api.ts": "export async function g() {\n  if (!res.ok) return [];\n}\n"})
+        # No --profile given (defaults to "gate", which excludes T12).
+        code, out = run([tree, "--detector", "T3", "--detector", "T12", "--report"])
+        self.assertEqual(code, 0, "--report always exits 0")
+        self.assertIn("1 undeclared finding", out, f"T12 must be checked when explicitly requested:\n{out}")
+        self.assertIn("T12", out, f"the finding must be attributed to T12:\n{out}")
+
     def test_every_detector_has_coverage(self):
         covered = set()
         for name in dir(self):
