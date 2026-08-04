@@ -1,0 +1,93 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Sanitize Gate — reusable workflow
+#
+# Blocks internal operating context (or, at --profile public, secrets/PII too)
+# from landing in a repository. Unlike the theater gate this is NOT a ratchet —
+# every tracked file is scanned on every run, because the point of this gate is
+# "nothing sensitive is present," not "nothing new was introduced." A repo can
+# only adopt this once it is at zero findings (fix real ones, allowlist
+# confirmed false positives via .cu2-sanitize-allow) — see tools/sanitize/README.md.
+#
+# Usage in any repository — the whole of it:
+#
+#   name: Sanitize gate
+#   on:
+#     push: { branches: [main] }
+#     pull_request: {}
+#   jobs:
+#     sanitize:
+#       uses: credit-union-2-0-llc/cu-agent-standards/.github/workflows/reusable-sanitize.yml@main
+#       with:
+#         profile: public   # default; use "internal" only for a private repo
+#
+# No secrets, no tokens, no organisation settings. This source repository is
+# public, so a caller of any visibility can use it.
+#
+# WHY REUSABLE RATHER THAN A COPIED FILE. Same reasoning as reusable-theater.yml:
+# vendoring the scanner into every repository means each rule fix needs a pull
+# request per repository, and the copies drift. Here the caller gets a few
+# lines and a correction propagates on merge.
+#
+# See tools/sanitize/README.md for the tier model, the two profiles, and the
+# allowlist convention.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Sanitize Gate (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: "internal (secret+pii, private repos) or public (adds internal-context tier)"
+        type: string
+        default: public
+      standards-ref:
+        description: >-
+          Override the ref this workflow takes the scanner from. Leave empty
+          (the default) to track main.
+        type: string
+        default: ""
+
+jobs:
+  sanitize:
+    name: Sanitize gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # No token: this repository is public, so the caller's own GITHUB_TOKEN
+      # reads it. `github.job_workflow_sha` would version-lock the scanner to
+      # this exact file, but it comes through empty in this context, so the
+      # chain falls back to main.
+      - name: Fetch the scanner
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: credit-union-2-0-llc/cu-agent-standards
+          ref: ${{ inputs.standards-ref != '' && inputs.standards-ref || (github.job_workflow_sha != '' && github.job_workflow_sha || 'main') }}
+          path: .cu2-sanitize
+          sparse-checkout: tools/sanitize
+          fetch-depth: 1
+
+      # FAIL CLOSED ON A MISSING SCANNER — same reasoning as the theater gate's
+      # equivalent step. A half-succeeded checkout that runs nothing must not
+      # report a pass.
+      - name: Verify the scanner arrived and is sane
+        run: |
+          set -euo pipefail
+          SCAN=.cu2-sanitize/tools/sanitize/cu2_sanitize_scan.py
+          if [ ! -f "$SCAN" ]; then
+            echo "::error::$SCAN not found — the cu-agent-standards checkout did"
+            echo "::error::not deliver the scanner. Refusing to report a pass."
+            ls -R .cu2-sanitize 2>/dev/null | head -40 || echo "(.cu2-sanitize absent)"
+            exit 2
+          fi
+          echo "scanner: $(git -C .cu2-sanitize rev-parse --short HEAD) ($(wc -l < "$SCAN") lines)"
+          python3 .cu2-sanitize/tools/sanitize/test_cu2_sanitize_scan.py
+
+      # BLOCKING. Full scan, every tracked file, every run — not a ratchet.
+      - name: Sanitize gate (full scan)
+        run: |
+          set -euo pipefail
+          python3 .cu2-sanitize/tools/sanitize/cu2_sanitize_scan.py . \
+            --profile "${{ inputs.profile }}" --tracked-only
