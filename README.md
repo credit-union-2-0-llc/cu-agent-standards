@@ -26,8 +26,17 @@ control.
 
 ## What it found
 
-Swept across 92 repositories: **767 candidates** and 6 red-or-absent scheduled workflows. Roughly half
-the candidates are legitimate suppressions, which the tool asks you to *declare* rather than remove.
+Swept across 92 repositories on 2026-07-28: **774 T1–T6 candidates** and 6 red-or-absent scheduled
+workflows. Roughly half the candidates are legitimate suppressions, which the tool asks you to
+*declare* rather than remove.
+
+This paragraph said "767" until 2026-08-05. The measured figure in
+[`tools/theater/README.md`](tools/theater/README.md) was 774 the whole time — the front page carried a
+number seven lower than the tool's own output, which is the defect this repository is named after,
+committed in the sentence that announces the finding. Both figures are estate measurements taken at a
+point in time and cannot be reproduced from this repository alone; the per-repo table is internal
+because it names 92 private repositories. Everything you *can* verify here — the ledger row count, the
+test count, the suite count — is asserted in CI.
 
 ```bash
 python3 tools/theater/theater_scan.py .                    # T1-T6, T8 — offline, no credentials

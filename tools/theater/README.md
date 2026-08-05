@@ -213,7 +213,7 @@ secret the caller holds; this one needs exactly two. If the reusable workflow we
 maliciously, it could read Azure credentials, API keys and DB connection strings from every adopting
 repo. Naming the two secrets costs the same number of lines.
 
-Worth recording plainly: the over-grant reached **71 merged repos** before a real security gate,
+Worth recording plainly: as of 2026-07-28 the over-grant had reached **71 merged repos** before a real security gate,
 running on a repo that actually enforces it, stopped the 72nd. The gate that caught it is precisely
 the kind of control this project exists to keep honest — and the 71 repos that let it through are
 the reason the rest of the estate needs the same enforcement.
@@ -247,8 +247,8 @@ App token and no `access_level` change at all. Until then those nine repos need 
 vendored, or they go without.
 
 **Reusable rather than copied, deliberately.** The detector has been wrong ten times and will be
-wrong again. Vendoring it into 92 repos means every fix needs 92 PRs and the copies drift. Here a
-correction propagates on merge.
+wrong again. Vendoring it into the estate — 92 repos as of 2026-07-28 — means every fix needs 92 PRs
+and the copies drift. Here a correction propagates on merge.
 
 **It fails closed if the detector does not arrive.** A half-successful checkout — wrong ref, sparse
 pattern matching nothing, a rename upstream — would otherwise run nothing and go green, leaving 91
@@ -306,7 +306,7 @@ to be coy about its own.
 | 13 | T10 called jest's no-tests-is-fine flag a no-op script | `jest --pass…` **runs jest**. broflo's 28-file suite, executing on every push, was reported as a green check that cannot fail | `test_jest_pass_with_no_tests_is_still_a_runner` |
 | 14 | T10 called a *delegating* script a no-op | broflo's root `test` fans out to `apps/**`; CI runs it and two packages genuinely are tested. Claiming the check "cannot go red" was false — the root's own 22 Playwright specs are simply unreached, which is `orphaned`, a different thing | `test_a_delegating_root_script_is_not_a_noop` |
 | 15 | T10 read a script, recognised nothing, and called that proof of nothing | dev-studio's CI gate is `node tools/test-kit.mjs unit`, whose runner arrives as a spawn argument array (`["--import","tsx","--test",glob]`). 78 test files running on every push were reported unreachable **at high confidence**. Not recognising a runner is now a caveat, not a verdict | `test_unreadable_runner_inside_a_followed_script_lowers_confidence` |
-| 16 | T10 demoted a unit to `unknown` on any unresolved indirection anywhere in the repo | rolling the theater gate out to 88 repos put one unreadable cross-repo `uses:` into nearly every repo — so **the rollout silently disposed of true findings estate-wide**, including ops-platform's 145, already confirmed by hand. Swallowing a real finding and inventing a false one are the same error | `TestUncertaintyIsRecordedNotSwallowed` |
+| 16 | T10 demoted a unit to `unknown` on any unresolved indirection anywhere in the repo | rolling the theater gate out to the 88 repos in the estate at that time put one unreadable cross-repo `uses:` into nearly every repo — so **the rollout silently disposed of true findings estate-wide**, including ops-platform's 145, already confirmed by hand. Swallowing a real finding and inventing a false one are the same error | `TestUncertaintyIsRecordedNotSwallowed` |
 | 17 | T10's cross-repo resolver returned the first checkout it found, not one containing the file | resolved `cu2-standards` to a Phase-1 clone predating the file, read nothing, and reported "in another repo" — while the answer sat on disk under a different path | `test_stale_checkout_without_the_file_says_so` |
 | 18 | `IDEMPOTENT_PATTERNS` and `SUPPRESSION_RE` matched the WHOLE line, comment included | a `# theater-ok:` reason that quoted the command it described satisfied the idempotent allowlist and **exempted its own line** — the finding vanished from `--inventory` entirely, passing for the wrong reason and ready to flip back the moment anyone reworded the comment. Caught by noticing the inventory said 3 declarations where 4 were written | `test_a_declaration_cannot_exempt_its_own_line` |
 | 19 | T1 flagged a suppression inside an emitted `printf` string literal | `cu2-billing/seed-kv.yml` builds an ACA Job manifest with `printf`; the `\|\| true` in the emitted text governs a container that runs later, elsewhere. Triaged as a false positive by hand in the 2026-07-30 sweep | `test_suppression_inside_an_emitted_printf_literal_is_not_this_step` |
@@ -338,11 +338,16 @@ a row showing Δ=−1. Both are now blocked by assertions. Nothing here is immun
 
 ## Measured baseline
 
-**Full estate, 92 non-archived repos, 2026-07-28** — see
-`.planning/phases/verification-theater-01/INVENTORY.md` for the per-repo table.
+**Full estate, 92 non-archived repos, 2026-07-28.** The per-repo table lives at
+`.planning/phases/verification-theater-01/INVENTORY.md` in the private source repository and is
+deliberately not published — it names 92 private repositories and their defect counts. It is cited
+here so the provenance of these figures is on the record, not so a reader can open it; the numbers
+below are estate measurements at a point in time and cannot be reproduced from this public repository.
+What *can* be reproduced from here — the ledger row count, the test count, the suite count — is
+asserted in CI by `test_ledger_count.py` and `test_measured_claims.py` rather than stated in prose.
 
 The 8-repo pilot found 169 findings. The naive extrapolation to 92 repos would have been ~1,944. The
-measured figure is **774 T1–T6 candidates plus 7 T7 findings** — so the pilot's own projection was
+measured figure is **774 T1–T6 candidates plus 6 T7 findings** — so the pilot's own projection was
 wrong by 2.5×, in the direction of overstating. Report what you measure.
 
 - 91 of 92 repos scanned; the 92nd is empty and has a stated row.
