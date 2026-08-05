@@ -63,11 +63,21 @@ on 767 existing findings would never be enabled, and an un-enabled gate is worth
 See [`tools/theater/README.md`](tools/theater/README.md) for the detectors, the declared-suppression
 convention, and the known blind spots.
 
+## Repo map
+
+| Path | What it is |
+|---|---|
+| [`tools/sanitize`](tools/sanitize) | the internal-context leak gate |
+| [`tools/theater`](tools/theater) | the verification-theater gate |
+| [`principles`](principles) | ranked design principles, each tied to a real incident |
+| [`agents`](agents) | role-spec schema and archetypes for narrow-scoped specialist agents |
+
 ## Scope
 
-This repository currently publishes the **tooling only**. The workflow specifications, agent
-archetypes, and incident knowledge base described in our internal roadmap are a separate, later
-release.
+This repository publishes the tooling, the ranked principles behind how it is used, and a set of
+sanitized agent role archetypes adapted from patterns actually running in production. The incident
+knowledge base itself — the internal, unredacted record each of these traces back to — stays private;
+what is here is what generalizes.
 
 ## License
 
