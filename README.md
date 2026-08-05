@@ -71,12 +71,14 @@ convention, and the known blind spots.
 | [`tools/theater`](tools/theater) | the verification-theater gate |
 | [`principles`](principles) | ranked design principles, each tied to a real incident |
 | [`agents`](agents) | role-spec schema and archetypes for narrow-scoped specialist agents |
+| [`skills`](skills) | procedure schema and worked examples, landmines included |
 
 ## Scope
 
-This repository publishes the tooling, the ranked principles behind how it is used, and a set of
-sanitized agent role archetypes adapted from patterns actually running in production. The incident
-knowledge base itself — the internal, unredacted record each of these traces back to — stays private;
+This repository publishes the tooling, the ranked principles behind how it is used, a set of
+sanitized agent role archetypes, and worked skill examples — all adapted from patterns actually
+running in production. The incident knowledge base itself — the internal, unredacted record each of
+these traces back to — stays private;
 what is here is what generalizes.
 
 ## License
