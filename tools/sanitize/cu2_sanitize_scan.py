@@ -308,6 +308,47 @@ def looks_like_a_literal_value(text):
     return True
 
 
+# An isolated operator, a shell/template interpolation, or a backtick. A real
+# secret contains none of these; source code that BUILDS a secret does.
+#
+# The boundary alternation matters: match_text() strips the captured value, so
+# ` + pw + ` arrives here as `+ pw +` with the outer whitespace already gone. A
+# pattern requiring whitespace on both sides silently missed it, and the first
+# version of this regex did exactly that -- the rule kept firing on this
+# scanner's own test file while the validator reported the value as legitimate.
+# Isolated by whitespace OR by the value boundary, therefore.
+#
+# Unspaced `+` stays legal: base64 secrets contain it.
+SOURCE_CONSTRUCTION_RE = re.compile(
+    r"(?:^|\s)[-+.%,|](?:\s|$)|\$\{|\$\(|`|\{\{"
+)
+
+
+def looks_like_a_literal_secret(text):
+    """`looks_like_a_literal_value`, plus: not a value assembled in source.
+
+    The quoted-assignment rule spans from the opening quote to the closing quote,
+    so in source that concatenates it can capture across a code boundary::
+
+        "...;Password=" + pw + ";Encrypt=True"
+
+    captures ``" + pw + "``, which is 8 characters and satisfies the length floor.
+    Found immediately, because the first version of that rule flagged this
+    scanner's own test file on exactly this shape -- the test suite runs the gate
+    against its own source, which is why it surfaced within a minute rather than
+    in somebody's repository.
+
+    A real credential does not contain ` + `, `${...}`, `$(...)`, a backtick, or
+    `{{...}}`. Source that builds one does. Note `+` alone is deliberately still
+    allowed unspaced, because base64 secrets contain it.
+    """
+    if not looks_like_a_literal_value(text):
+        return False
+    if SOURCE_CONSTRUCTION_RE.search(text):
+        return False
+    return True
+
+
 def looks_like_base64_blob(text):
     """
     True only for high-entropy base64-ish strings.
@@ -373,6 +414,43 @@ RULES = [
          r"\b(?:api[_-]?key|secret|token|passwd|password|access[_-]?key)\b"
          r"\s*[:=]\s*['\"]?([A-Za-z0-9._/+-]{12,})(?=['\"]?(?:\s|$|[,;)\]}]))", re.I,
          validator=looks_like_a_literal_value),
+
+    # The rule above cannot see a value containing punctuation outside
+    # [A-Za-z0-9._/+-]. That class plus the terminator lookahead is what keeps
+    # `token = FILE.read_text().strip()` from reading as a secret — a real fix
+    # for a real false positive — but it also means a password meeting any
+    # normal complexity policy is INVISIBLE to it:
+    #
+    #     Password=Hunter2Hunter2!   -> value stops at `Hunter2Hunter2`,
+    #                                   then `!` fails the terminator, no match
+    #
+    # Verified 2026-08-05: that string passed `--profile public` CLEAN, exit 0,
+    # while foundry's generic rule caught and redacted it. A hardening change
+    # made to remove noise had removed signal, and nothing noticed because the
+    # only fixtures were values the narrowed class still matched.
+    #
+    # Rather than widen the class above (which would reintroduce the call-
+    # expression false positive it was added to kill), two narrower rules follow.
+    # Each has exactly one capture group, because match_text() reads group(1).
+
+    # When the value is quoted, the closing quote IS the terminator, so the value
+    # may contain anything at all. This is the shape that hides a real password.
+    rule("Quoted secret assignment (any characters in value)", "secret",
+         r"\b(?:api[_-]?key|secret|token|passwd|password|access[_-]?key|client[_-]?secret)\b"
+         r"\s*[:=]\s*[\"']([^\"'\r\n]{8,})[\"']", re.I,
+         validator=looks_like_a_literal_secret),
+
+    # Connection strings delimit with `;`, so the value is everything up to it.
+    # This also closes a gap both this scanner and foundry's had: an Azure
+    # Storage connection string whose AccountKey is under 40 base64 characters
+    # was matched by NEITHER, because the only thing that ever caught one was the
+    # generic 40+ char base64 rule, incidentally. `=` is deliberately allowed in
+    # the value class so base64 padding is captured; `<` and `>` are excluded so
+    # `Password=<your-password>` stays a placeholder.
+    rule("Credential in connection string", "secret",
+         r"\b(?:password|pwd|accountkey|sharedaccesssignature|accountsecret)\s*=\s*"
+         r"([^;\s\"'<>]{8,})(?=\s*(?:[;\"']|$))", re.I,
+         validator=looks_like_a_literal_secret),
     rule(".env-style sensitive KEY=VALUE", "secret",
          r"(?m)^\s*[A-Z][A-Z0-9_]*(?:SECRET|TOKEN|KEY|PASSWORD|PASSWD|AUTH|CREDENTIAL|PRIVATE)"
          r"[A-Z0-9_]*\s*=\s*['\"]?([^\s'\"#]{8,})['\"]?\s*$",

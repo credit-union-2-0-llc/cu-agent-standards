@@ -27,7 +27,7 @@
 # gets four lines and a correction propagates on merge.
 #
 # See tools/theater/README.md for the detectors, the declared-suppression
-# convention, and the ledger of the twenty times this toolchain lied to us.
+# convention, and the ledger of the twenty-two times this toolchain lied to us.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Theater Gate (reusable)

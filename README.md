@@ -46,7 +46,7 @@ python3 tools/theater/workflow_health.py OWNER/REPO        # T7 — needs the Gi
 
 ## The part worth reading
 
-[`tools/theater/README.md`](tools/theater/README.md) carries a ledger of **the twenty times this
+[`tools/theater/README.md`](tools/theater/README.md) carries a ledger of **the twenty-two times this
 toolchain lied to us** — each one pinned by a named regression test.
 
 The first: a pattern meant to find skipped tests matched `exit(` as well as `xit(`, and reported 490

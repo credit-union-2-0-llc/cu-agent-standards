@@ -284,7 +284,7 @@ owner, reviewed quarterly."** That survives an examiner asking about it.
 
 ## The bugs that justify this tool
 
-**This toolchain has now lied to us twenty times.** Every one is pinned by a named test. The list is
+**This toolchain has now lied to us twenty-two times.** Every one is pinned by a named test. The list is
 kept in the README rather than in a commit log because it is the single most persuasive argument for
 the false-positive-regression rule, and because a tool that finds dishonest signals has no standing
 to be coy about its own.
@@ -311,6 +311,8 @@ to be coy about its own.
 | 18 | `IDEMPOTENT_PATTERNS` and `SUPPRESSION_RE` matched the WHOLE line, comment included | a `# theater-ok:` reason that quoted the command it described satisfied the idempotent allowlist and **exempted its own line** — the finding vanished from `--inventory` entirely, passing for the wrong reason and ready to flip back the moment anyone reworded the comment. Caught by noticing the inventory said 3 declarations where 4 were written | `test_a_declaration_cannot_exempt_its_own_line` |
 | 19 | T1 flagged a suppression inside an emitted `printf` string literal | `cu2-billing/seed-kv.yml` builds an ACA Job manifest with `printf`; the `\|\| true` in the emitted text governs a container that runs later, elsewhere. Triaged as a false positive by hand in the 2026-07-30 sweep | `test_suppression_inside_an_emitted_printf_literal_is_not_this_step` |
 | 20 | T11's dispatch call landed inside `if "T8" in active:` | `--detector T11` produced `active={T11}`, so T8 was inactive, `detect_t11` never ran, and the CLI reported a confident **CLEAN across the whole estate** while 30 real findings sat there. The detector was correct and its unit tests passed — only the wiring was wrong. **An unreachable detector is worse than a missing one: it answers "nothing here" with authority** | `test_t11_is_reachable_through_the_scan_entry_point` |
+| 21 | The sanitizer's generic-secret value class excluded punctuation | a terminator lookahead added to kill a `FILE.read_text()` false positive narrowed the value class to `[A-Za-z0-9._/+-]`, so **any password meeting a normal complexity policy was invisible**. `Password=Hunter2Hunter2!` passed `--profile public` CLEAN, exit 0, on the whole estate, while foundry's looser rule caught and redacted it. Removing noise removed signal, and no fixture noticed because every sample used a value the narrow class still matched | `test_password_with_punctuation_is_caught`, `test_azure_storage_key_under_40_chars_is_caught` |
+| 22 | The fix's own first draft flagged this scanner's test file | the quoted-value rule spans quote to quote, so in source that concatenates it captured across a code boundary — `"...Password=" + pw + ";..."` yielded `+ pw +`, 8 chars, over the length floor. Then the guard written for it required whitespace on *both* sides of the operator, but `match_text()` strips the value, so `+ pw +` slipped through a second time. Caught within a minute both times, because the suite runs the gate against its own source | `test_new_rules_do_not_reintroduce_the_call_expression_false_positive` |
 
 **Seven of the seventeen are T10's, and every one was found the same way: by running the detector
 against a repository whose answer was already known by hand, and refusing to accept the output.**
