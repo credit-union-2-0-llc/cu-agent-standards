@@ -61,6 +61,6 @@ depended on elsewhere — not assuming it is safe to touch because it looks orph
 ## Where this came from
 
 Not written in the abstract. Each principle above traces to a specific incident this estate produced —
-see [`tools/theater/README.md`](../tools/theater/README.md) for the ledger of twenty times a
+see [`tools/theater/README.md`](../tools/theater/README.md) for the ledger of twenty-two times a
 verification signal lied, and the ongoing audit trail for the credential and scope findings referenced
 above. A principles document with no incidents behind it is a wish list, not a ranking.

@@ -80,6 +80,9 @@ class TestRulesFire(unittest.TestCase):
         ("Cloud/service-account", "client_secret" + ": " + "Zx8" + "q" * 20),
         ("Kubeconfig credential", "client-key-data" + ": " + "LS0t" + "K" * 24),
         ("Generic API/secret/token assignment", "api_key" + " = " + "abcd1234efgh5678"),
+        ("Quoted secret assignment", "password" + ': "' + "P@ss" + "w0rd!Complex" + '"'),
+        ("Credential in connection string",
+         "Server=db;Password=" + "Hunter2" + "Hunter2!" + ";Encrypt=True"),
         (".env-style sensitive", "DATABASE_PASSWORD" + "=" + "hunter2hunter2"),
         ("Long base64-ish", "blob " + "aB3" * 16),
         ("External email address", "reach " + "auditor" + "@" + "auditfirm.co"),
@@ -263,6 +266,77 @@ class TestNegatives(unittest.TestCase):
     def test_hardcoded_literal_still_fires(self):
         self.assertTrue(hits("Generic API/secret/token assignment",
                              "api_key" + " = " + '"abcd1234efgh5678"'))
+
+    def test_password_with_punctuation_is_caught(self):
+        """Regression, ledger row 20: a complexity-policy password was INVISIBLE.
+
+        The generic rule's value class is [A-Za-z0-9._/+-] and its terminator
+        lookahead requires the value to end the expression. A password containing
+        anything else -- which is to say, any password meeting a normal complexity
+        policy -- matched neither. Verified 2026-08-05: this exact string passed
+        `--profile public` CLEAN, exit 0, on a gate running across the estate,
+        while foundry's looser generic rule caught and redacted it.
+
+        The narrowed class was itself a fix, for `FILE.read_text().strip()`
+        reading as a secret. Removing noise removed signal, and no fixture
+        noticed because every existing sample used a value the narrow class still
+        matched. Both directions are now pinned: this test, and the two above it.
+        """
+        pw = "Hunter2" + "Hunter2!"
+        for line in (
+            "Server=localhost,1433;User ID=svc;Password=" + pw + ";Encrypt=True",
+            "password" + ': "' + pw + '"',
+            "password" + ": '" + pw + "'",
+            "client_secret" + ': "' + "abc!def" + "$ghi%jkl" + '"',
+        ):
+            with self.subTest(line=line):
+                self.assertTrue(
+                    hits("Quoted secret assignment", line)
+                    or hits("Credential in connection string", line),
+                    "a password containing punctuation went undetected",
+                )
+
+    def test_azure_storage_key_under_40_chars_is_caught(self):
+        """Regression: NEITHER this scanner nor foundry's flagged this shape.
+
+        An Azure Storage connection string was only ever caught incidentally, by
+        the generic 40+ char base64 rule. Below that length both scanners passed
+        it -- and per the estate review this is the most common Azure leak shape
+        here. Caught now by the connection-string rule, on the key name rather
+        than on the value's length.
+        """
+        key = "Zm9vYmFyYmF6cXV4MTIzNA=="          # 24 chars: under the 40+ rule
+        conn = ("DefaultEndpointsProtocol=https;AccountName=stor;"
+                "AccountKey=" + key + ";EndpointSuffix=core.windows.net")
+        self.assertLess(len(key), 40, "fixture must stay under the base64 rule")
+        self.assertTrue(hits("Credential in connection string", conn))
+
+    def test_new_rules_do_not_reintroduce_the_call_expression_false_positive(self):
+        """The narrowed class existed for a reason; the new rules must not undo it."""
+        for line in ("token = " + "GH_TOKEN_FILE.read_text" + "().strip()",
+                     "password = " + "get_password_from_vault" + "()",
+                     "api_key = " + "config.get" + '("api_key")',
+                     "secret = " + "os.environ" + '["MY_SECRET"]'):
+            with self.subTest(line=line):
+                self.assertFalse(hits("Quoted secret assignment", line))
+                self.assertFalse(hits("Credential in connection string", line))
+
+    def test_placeholder_credentials_stay_quiet(self):
+        for line in ("Password=" + "<your-password>",
+                     "password" + ': "' + "changeme-example" + '"',
+                     "AccountKey=" + "<CU2_ACCOUNT_KEY>"):
+            with self.subTest(line=line):
+                self.assertFalse(hits("Quoted secret assignment", line))
+                self.assertFalse(hits("Credential in connection string", line))
+
+    def test_the_value_is_redacted_in_output(self):
+        """A scanner that prints the secret it found has created a second leak."""
+        pw = "Hunter2" + "Hunter2!"
+        tmp = write_tree({"conn.cs": "var c = \"Password=" + pw + ";Encrypt=True\";\n"})
+        code, out = run_gate([tmp, "--profile", "public"])
+        self.assertEqual(code, 1, out)
+        self.assertNotIn(pw, out, "the scanner leaked the value it was reporting")
+        self.assertIn("[REDACTED]", out)
 
     def test_env_var_reference_is_not_a_secret(self):
         self.assertFalse(hits(".env-style sensitive", "OPS_API_KEY" + "=" + "${OPS_API_KEY}"))
