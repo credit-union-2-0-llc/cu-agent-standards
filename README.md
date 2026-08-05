@@ -37,7 +37,7 @@ python3 tools/theater/workflow_health.py OWNER/REPO        # T7 — needs the Gi
 
 ## The part worth reading
 
-[`tools/theater/README.md`](tools/theater/README.md) carries a ledger of **the seventeen times this
+[`tools/theater/README.md`](tools/theater/README.md) carries a ledger of **the twenty times this
 toolchain lied to us** — each one pinned by a named regression test.
 
 The first: a pattern meant to find skipped tests matched `exit(` as well as `xit(`, and reported 490
@@ -47,9 +47,16 @@ Two were caught later still — only when somebody moved to *act* on a finding a
 Seven are T10's, found by running it against repositories whose answer was already known by hand;
 four of those were false *cleans*, the direction nobody investigates.
 
-This paragraph said "eleven" for six commits after the ledger reached seventeen. A stale count in the
-front door of a repository about signals that lie is the joke writing itself, and it is left recorded
-here rather than quietly corrected.
+**This count has now gone stale twice.** It said "eleven" for six commits after the ledger reached
+seventeen. It was corrected by hand — and then said "seventeen" for the twenty-row ledger, while
+`reusable-theater.yml`, the file every adopting repository calls, still said "eleven". A stale count
+in the front door of a repository about signals that lie is the joke writing itself; a stale count
+that recurs *after* being corrected by hand is the argument for not correcting it by hand.
+
+Both are recorded here rather than quietly fixed, and the count is now asserted in CI
+(`ledger-count` in `.github/workflows/ci.yml`) against the actual row count, in every file that
+states it. A prose number nothing checks is a signal that lies, which is this tool's entire thesis
+applied to its own README.
 
 We publish that list on purpose. A tool that argues checks lie has no standing to be coy about its
 own, and the ledger is more useful than the code.

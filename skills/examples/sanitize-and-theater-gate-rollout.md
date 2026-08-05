@@ -62,6 +62,43 @@ reads as a decision a different reviewer would make the same way twice, and the 
 green by querying the default branch's own check-run state after merge — not assumed green because the
 PR that added it passed.
 
+## Output contract
+
+- **Primary output:** a rollout record on the pull request that wires the gate, plus the
+  `.cu2-sanitize-allow` file it lands with.
+- **Required fields in the record:**
+  - Full-scan counts before triage, by tier (`secret` / `pii` / `internal`).
+  - Each finding's disposition: fixed, allowlisted, or accepted-and-functionally-required.
+  - The profile the gate runs at, and the diff base if it runs as a ratchet.
+  - Post-merge default-branch check-run state, quoted from the API rather than the PR.
+- **Every allowlist entry must carry:** the pattern, a one-line reason, and a date. An entry without
+  a reason is a suppression pretending to be a decision.
+- **Destination:** the PR body and the repository's own `.cu2-sanitize-allow`. Never a side channel —
+  the justification has to live next to the thing it justifies or the next reader cannot audit it.
+- **Example skeleton:**
+
+```md
+Full scan: 63 findings (secret 0 / pii 4 / internal 59)
+Fixed: 6 (see commits)
+Allowlisted: 55 — each with reason + date in .cu2-sanitize-allow
+Accepted as functionally required: 2 (ACR login server, resource group in az deploy)
+Gate profile: public, full scan (not ratchet)
+Default-branch check-run after merge: success (queried via gh api)
+```
+
+## Privacy and approval
+
+- **Data this skill touches:** the full contents of every tracked file in the repository, including
+  whatever secrets are actually present. Treat the scan output itself as sensitive until confirmed clean.
+- **Blocked:** never paste raw scanner output containing an unredacted match into a PR body, an issue,
+  a chat message, or a CI log. The scanner redacts matched values for this reason; defeating that by
+  quoting the source line reintroduces the leak in a more durable place.
+- **Redaction rule:** when a real finding needs discussion, reference it by file and line, never by value.
+- **Approval required before:** merging the gate wiring into a live CI configuration; removing or
+  narrowing any pre-existing allowlist entry; and enabling the gate on a repository you do not own.
+- **No approval needed for:** running scans, and adding a new allowlist entry that carries a reason
+  and a date.
+
 ## Verification
 
 - Run the sanitizer and theater scanner locally before opening the PR.
@@ -70,6 +107,19 @@ PR that added it passed.
   something about the merge itself (not the PR's own diff) trips a pattern.
 - Spot-check that the gate fails when it should: temporarily reintroduce a known bad pattern in a
   scratch branch and confirm the gate catches it, then discard the branch.
+
+## Maintenance
+
+- **Add a landmine the first time a scan is wrong, in either direction.** A false positive and a false
+  negative are equally worth pinning; the false *cleans* are the ones nobody investigates, so they need
+  the discipline more.
+- **Every scanner fix gets a named regression test**, and the ledger row referencing it gets a date.
+  A ledger of pinned bugs is the argument for the tool; an undated one cannot be read chronologically.
+- **Signals this skill has gone stale:** the scanner grows a rule class this procedure never mentions;
+  a repository adopts the gate at a profile not described here; or the allowlist convention changes
+  shape. Any of those means the Procedure section is now describing a tool that no longer exists.
+- **Re-read the allowlist whenever a nearby comment is reworded.** Entries match literal text, and the
+  drift is silent — see the second landmine below.
 
 ## Landmines
 

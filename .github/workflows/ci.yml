@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          FLOOR=4   # 3 under tools/theater + 1 under tools/sanitize
+          FLOOR=6   # 4 under tools/theater + 1 under tools/sanitize + 1 under tools/lint
           SUITES=$(find tools -name 'test_*.py' -type f | sort)
 
           # Counted without `grep -c`, which exits 1 on a zero count and would
@@ -116,6 +116,17 @@ jobs:
           echo "ratchet base: $BASE"
           python3 tools/theater/theater_scan.py . \
             --profile gate --diff-base "$BASE" --tracked-only
+
+      - name: Schema conformance — the published schemas must actually bind
+        run: |
+          set -euo pipefail
+          # agents/AGENT-SPEC.schema.md and skills/SKILL.schema.md each declare a
+          # "Required sections" list. Until this step existed that list was prose:
+          # the first skill schema committed here dropped three of the nine sections
+          # it inherited from upstream, both examples were written to the reduced
+          # list, and every gate stayed green. A declared shape nothing verifies is
+          # the defect class tools/theater is named after.
+          python3 tools/lint/format_lint.py .
 
       - name: Sanitize gate — nothing sensitive may land in a PUBLIC repo
         run: |
