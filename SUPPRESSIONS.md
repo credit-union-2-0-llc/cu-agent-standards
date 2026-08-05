@@ -168,6 +168,6 @@ That is a work order, not a fleet-wide slog. It is also the class that produces
 `items: []` by construction: a caller cannot distinguish "nothing found" from "the query
 threw", which is why it is `high` and in the gate profile.
 
-By contrast T1/T2/T8 together are 80 findings, and those are the classes where *declaring*
+By contrast T1/T2/T8 together are 80 findings in that same 2026-07-31 baseline, and those are the classes where *declaring*
 is often the right answer rather than removing. Roughly the same order of magnitude as the
 43 already declared — that part of the backlog closes by writing reasons, not code.

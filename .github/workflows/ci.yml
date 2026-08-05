@@ -5,7 +5,14 @@
 # pull_request — `reusable-theater.yml` is `workflow_call`-only, so it never
 # fires here. The consequences were specific:
 #
-#   * Of 224 tests in tools/, only the 69 in test_theater_scan.py ever executed,
+# Every count in this block is HISTORICAL — the state when this file was written
+# (2026-08-04, 224 tests / 86 adopting repos). Current figures are measured, not
+# narrated: see the `discovered N suite(s)` and per-suite tallies this workflow
+# prints, and `tools/lint/test_measured_claims.py`, which fails if any prose
+# claim about the test or suite count drifts from the real one. That test exists
+# because this very comment block went stale within a day of being written.
+#
+#   * Of 224 tests in tools/ as of 2026-08-04, only the 69 in test_theater_scan.py ever executed,
 #     and only inside OTHER repositories' gates — which fetch the detector from
 #     `main`. So they ran strictly AFTER merge, by which time all 86 adopting
 #     repositories were already tracking the change.
@@ -46,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          FLOOR=6   # 4 under tools/theater + 1 under tools/sanitize + 1 under tools/lint
+          FLOOR=7   # 4 under tools/theater + 1 under tools/sanitize + 2 under tools/lint
           SUITES=$(find tools -name 'test_*.py' -type f | sort)
 
           # Counted without `grep -c`, which exits 1 on a zero count and would
