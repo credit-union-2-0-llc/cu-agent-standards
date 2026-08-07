@@ -84,6 +84,11 @@ jobs:
           fi
           echo "scanner: $(git -C .cu2-sanitize rev-parse --short HEAD) ($(wc -l < "$SCAN") lines)"
           python3 .cu2-sanitize/tools/sanitize/test_cu2_sanitize_scan.py
+          # Fixture-mutation harness: proves every rule still rejects a
+          # deliberately mutated known-good fixture, not just that it
+          # matches an isolated positive sample. See that file's docstring
+          # for the regression this closes.
+          python3 .cu2-sanitize/tools/sanitize/test_fixture_mutations.py
 
       # BLOCKING. Full scan, every tracked file, every run — not a ratchet.
       - name: Sanitize gate (full scan)

@@ -14,6 +14,10 @@ python3 tools/sanitize/cu2_sanitize_scan.py . --profile public
 python3 tools/sanitize/cu2_sanitize_scan.py . --profile public --report
 
 python3 tools/sanitize/test_cu2_sanitize_scan.py
+
+# Fixture-mutation harness: for every rule, mutates a known-good fixture into
+# a deliberately bad one and asserts the rule rejects it — see below.
+python3 tools/sanitize/test_fixture_mutations.py
 ```
 
 Exit codes: `0` clean · `1` findings · `2` bad input.
@@ -104,6 +108,28 @@ to publish:
 
 Human review of the diff is required regardless of what the gate says. See the publication checklist in
 `docs/` before anything goes public.
+
+## Fixture-mutation testing
+
+`test_cu2_sanitize_scan.py` proves every rule fires on a positive sample. That
+leaves a gap: a rule can be quietly hardened into never firing on the input it
+exists for, and a suite of isolated positive samples does not always notice —
+this happened once, when the "Quoted secret assignment" and "Credential in
+connection string" rules were narrowed to kill a false positive and, in the
+same change, stopped catching any password containing normal punctuation.
+Nothing caught it until a manual scan.
+
+`test_fixture_mutations.py` closes that class of bug the way The Agent
+Foundry's `gates/scripts/fixture_smoke.py` closes it for its own fixtures:
+start from one fixture verified clean, apply a single targeted mutation per
+rule, and assert that mutation alone flips the scan from clean to flagged —
+through the real `scan_file()` pipeline, not the regex layer in isolation. The
+mutation catalog is checked against the live rule table in both directions, so
+a new rule without a mutation, or a mutation whose rule was renamed or
+removed, fails CI rather than silently covering nothing. A second class of
+mutation targets rules whose captured value is delimited by a quote or a `;`
+rather than a character class, generalizing the punctuation regression above
+into a standing check instead of a one-off fixture.
 
 ## Attribution
 

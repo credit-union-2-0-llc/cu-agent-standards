@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          FLOOR=7   # 4 under tools/theater + 1 under tools/sanitize + 2 under tools/lint
+          FLOOR=8   # 4 under tools/theater + 2 under tools/sanitize + 2 under tools/lint
           SUITES=$(find tools -name 'test_*.py' -type f | sort)
 
           # Counted without `grep -c`, which exits 1 on a zero count and would
