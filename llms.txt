@@ -1,0 +1,49 @@
+# cu-agent-standards
+
+> Examiner-grade patterns for running a credit union on AI agents, published by Credit Union 2.0.
+> Two dependency-free, offline Python gates — `sanitize` (stops internal context leaving a repo) and
+> `theater` (stops a control from lying about whether it ran) — plus the ranked design principles,
+> sanitized agent-archetype specs, and worked skill examples built on top of them. All adapted from
+> patterns running in production; the private, unredacted incident record stays internal, and what's
+> published here is what generalizes.
+
+## Start here
+
+- [README.md](README.md): what the two gates catch, the ledger of times the theater gate has lied to
+  its own maintainers, and the repo map.
+- [principles/PRINCIPLES.md](principles/PRINCIPLES.md): six ranked design principles, strict order, no
+  ties — each one tied to a real incident.
+- [CONTRIBUTING.md](CONTRIBUTING.md): how to propose a new detector, agent archetype, or skill, the
+  real branch/PR conventions used here, and exactly what CI gates before merge.
+- [CHANGELOG.md](CHANGELOG.md): real merged-PR history, grouped by milestone, sourced from `gh pr list`.
+- [SECURITY.md](SECURITY.md): how to report a sanitize/theater false negative or a tooling
+  vulnerability, and what's out of scope.
+
+## The gates
+
+- [tools/sanitize/README.md](tools/sanitize/README.md): the internal-context/secret/PII leak gate —
+  three tiers (`secret`, `pii`, `internal`), two profiles (`internal` default, `public` for anything
+  headed out of the org).
+- [tools/theater/README.md](tools/theater/README.md): the verification-theater gate — the T1–T12
+  detector table, `workflow_health.py`'s T7/T9 checks against the live GitHub Actions API, and the
+  full bug ledger, each row pinned by a named regression test.
+- [SUPPRESSIONS.md](SUPPRESSIONS.md): when a declared `theater-ok` suppression is the right call versus
+  standing in for real work, and the command to audit an estate's current suppressions yourself.
+
+## Building on this repo
+
+- [agents/README.md](agents/README.md): why narrow-scoped specialist agents beat a generalist, and how
+  to spec one.
+- [agents/AGENT-SPEC.schema.md](agents/AGENT-SPEC.schema.md): the canonical agent role-spec schema —
+  required frontmatter, required sections — mechanically enforced by `tools/lint/format_lint.py`.
+- [agents/archetypes](agents/archetypes): sanitized, production-derived role specs — email triage,
+  cross-repo security scanner, dependency remediator.
+- [skills/README.md](skills/README.md): what a skill is, why the Landmines section matters most, and
+  how to build one.
+- [skills/SKILL.schema.md](skills/SKILL.schema.md): the canonical skill schema.
+- [skills/examples](skills/examples): worked, sanitized skills with real landmines attached.
+
+## License
+
+- [LICENSE](LICENSE): MIT, including this repo's third-party attribution for the upstream code
+  portions it adapts.
