@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          FLOOR=9   # 5 under tools/theater + 2 under tools/sanitize + 2 under tools/lint
+          FLOOR=10  # 5 under tools/theater + 3 under tools/sanitize + 2 under tools/lint
           SUITES=$(find tools -name 'test_*.py' -type f | sort)
 
           # Counted without `grep -c`, which exits 1 on a zero count and would
@@ -143,6 +143,19 @@ jobs:
           # until the call-expression false positive was fixed alongside this
           # file; `internal` is the secret+pii profile.
           python3 tools/sanitize/cu2_sanitize_scan.py . --profile internal --tracked-only
+
+      - name: Allowlist drift — this repo's own .cu2-sanitize-allow
+        run: |
+          set -euo pipefail
+          # This repo's own allowlist (root .cu2-sanitize-allow) exists for exactly
+          # the reason tools/sanitize/README.md documents — a self-referential org
+          # slug and evidence-link run URLs the sanitize gate would otherwise flag.
+          # It is exactly as capable of going silently stale as any downstream
+          # repo's, which is the whole reason check_allowlist_drift.py exists — see
+          # that file's module docstring for the two real incidents that motivated
+          # it. Running it here means this repo eats its own dog food rather than
+          # only offering the check to callers via reusable-sanitize.yml.
+          python3 tools/sanitize/check_allowlist_drift.py . --tracked-only
 
       - name: Standing backlog (non-blocking)
         if: always()

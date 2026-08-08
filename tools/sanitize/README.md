@@ -18,6 +18,10 @@ python3 tools/sanitize/test_cu2_sanitize_scan.py
 # Fixture-mutation harness: for every rule, mutates a known-good fixture into
 # a deliberately bad one and asserts the rule rejects it — see below.
 python3 tools/sanitize/test_fixture_mutations.py
+
+# Has .cu2-sanitize-allow gone stale? See "Allowlist drift" below.
+python3 tools/sanitize/check_allowlist_drift.py .
+python3 tools/sanitize/test_check_allowlist_drift.py
 ```
 
 Exit codes: `0` clean · `1` findings · `2` bad input.
@@ -108,6 +112,57 @@ to publish:
 
 Human review of the diff is required regardless of what the gate says. See the publication checklist in
 `docs/` before anything goes public.
+
+## Allowlist drift
+
+`.cu2-sanitize-allow` suppresses a finding by matching literal text: a `line:` regex against a file's
+content, or a `path:` regex against a repo-relative path. Nothing in the format ties an entry to the one
+file its author had in mind, and nothing ever re-checks that the text an entry was written against is
+still there. Both halves of that gap have bitten this org for real, in the same downstream repository,
+each time as a one-off script written on the spot, used once, and thrown away:
+
+1. **A comment reword broke a `line:` match.** An entry was written to match one exact line, including a
+   trailing comment. A later, unrelated pull request reworded that comment. The sensitive substring the
+   entry existed to excuse — a self-referential org/repo slug — never changed, but the entry's regex no
+   longer matched the line it was written against, so the gate started failing again with no visible
+   connection to what the breaking PR actually touched.
+2. **A sibling file's line was never covered.** During later cleanup work, a second CI file started
+   naming the same organization repo slug that a *different* file's line had already been allowlisted
+   for — but this file's own occurrence had no entry of its own. Structurally the same defect as #1: an
+   allowlist that was correct on the day it was written and had silently stopped describing reality.
+
+Both incidents are already named, in general form, under "Landmines" in
+[`skills/examples/sanitize-and-theater-gate-rollout.md`](../../skills/examples/sanitize-and-theater-gate-rollout.md)
+("Allowlist entries drift silently when a nearby comment gets reworded"). `check_allowlist_drift.py`
+turns that documented tribal knowledge into a standing, automated check instead of something a reviewer
+has to remember to re-derive by hand every time.
+
+```bash
+python3 tools/sanitize/check_allowlist_drift.py .
+python3 tools/sanitize/check_allowlist_drift.py . --tracked-only   # matches CI's invocation
+python3 tools/sanitize/test_check_allowlist_drift.py
+```
+
+**What it checks.** The `.cu2-sanitize-allow` format has no per-entry file reference, so a `line:` entry
+suppresses any line, in any tracked file, that its regex matches — there is no "its" file to check against.
+The honest, format-faithful question is therefore: does this entry's pattern still match *anything* in the
+repository's current tracked content? A `line:` entry drifts when no tracked file contains a matching
+line anymore; a `path:` entry drifts when no tracked file's path matches anymore. A drifted entry means
+one of two things, and the tool deliberately does not guess which: either the finding it excused is gone
+(fixed, deleted, moved out of scope — delete the entry) or the content changed shape under it (a reword, a
+rename — re-point the entry at what the content looks like today). Either way, a human has to look; that
+is the same value an "unused suppression" lint provides for a stale `# noqa`.
+
+**What it does not do.** It does not re-run any `cu2_sanitize_scan.py` rule — a drifted entry might
+correspond to zero real findings today, or to a finding the gate would now catch on its own; run the
+sanitize gate itself to tell which. It also does not enforce the "broad pattern" / "unanchored path"
+policy `cu2_sanitize_scan.py`'s own allowlist loader already enforces — that is "this entry is dangerously
+permissive," a different question from "this entry no longer refers to anything," and it is already
+answered elsewhere.
+
+**Wired in three places:** as a pre-flight step in `reusable-sanitize.yml` (on by default for every
+caller — see that file), as a step in this repository's own CI against its own `.cu2-sanitize-allow`, and
+as an available pre-commit hook (`cu2-allowlist-drift`, `.pre-commit-hooks.yaml`).
 
 ## Fixture-mutation testing
 
