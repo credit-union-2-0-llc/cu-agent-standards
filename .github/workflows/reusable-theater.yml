@@ -97,6 +97,11 @@ jobs:
           fi
           echo "detector: $(git -C .cu2-theater rev-parse --short HEAD) ($(wc -l < "$SCAN") lines)"
           python3 .cu2-theater/tools/theater/test_theater_scan.py
+          # Fixture-mutation harness: proves every detector still rejects a
+          # deliberately mutated known-good fixture, not just that it
+          # matches an isolated positive sample. See that file's docstring
+          # for the regression class this closes.
+          python3 .cu2-theater/tools/theater/test_fixture_mutations.py
 
       # BLOCKING. Fails only on theater this change introduced.
       - name: Theater gate (ratchet — new findings only)

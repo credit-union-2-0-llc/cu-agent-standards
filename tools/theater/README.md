@@ -31,6 +31,7 @@ python3 tools/theater/theater_scan.py . --profile gate --staged           # ratc
 
 python3 tools/theater/test_theater_scan.py       # 59 tests
 python3 tools/theater/test_workflow_health.py    # 44 tests
+python3 tools/theater/test_fixture_mutations.py  # fixture-mutation harness — see below
 ```
 
 Exit codes (both tools): `0` clean · `1` undeclared findings · `2` bad input.
@@ -281,6 +282,43 @@ not guess. It requires a **declaration**:
 The output of this convention is the artifact worth having. Not "we have no verification theater,"
 which nobody should believe, but **"here are our N declared suppressions, each with a reason and an
 owner, reviewed quarterly."** That survives an examiner asking about it.
+
+## Fixture-mutation testing
+
+`test_theater_scan.py` proves every detector fires on a hand-written positive sample, and proves
+the inverse too — every detector ships with both a positive test and a false-positive regression
+test. That still leaves the gap `tools/sanitize/test_fixture_mutations.py` was written to close for
+the sanitizer: a detector can be quietly narrowed until it stops firing on the input it exists for,
+and a suite of hand-written positive samples does not always notice, because nothing forces those
+samples to sit inside an otherwise ordinary file scanned through the real dispatch path.
+
+`test_fixture_mutations.py` closes that class of bug here the same way, and the same way The Agent
+Foundry's `gates/scripts/fixture_smoke.py` closes it for its own fixtures: start from one fixture
+per detector, verified clean, apply a single targeted mutation, and assert that mutation alone flips
+the scan from clean to flagged — through the real `scan_file()` dispatch, not `detect_tN()` called
+directly. That distinction is not cosmetic: bug 20 below (`detect_t11`'s call landing inside
+`if "T8" in active:`) passed every one of its own unit tests, because a unit test calls `detect_t11`
+directly and never exercises the dispatch table that was actually broken.
+
+The mutation catalog is checked against the live `DETECTORS` tuple in both directions, so a new
+detector without a fixture, or a fixture whose detector was renamed or removed, fails CI rather than
+silently covering nothing — the same discipline `test_ledger_count.py` applies to the bug count
+below, for the same reason.
+
+Two further classes are checked per detector, generalizing regressions this toolchain has already
+made more than once:
+
+- **Declaring a finding must annotate it, never delete it.** Bug 18 below, and three separate
+  same-line-comment regressions pinned directly in `test_theater_scan.py`'s own docstrings (T3, T11,
+  T12), are all this same shape: a `theater-ok` comment landing on or near the line it declares broke
+  the exact-match regex meant to still recognise the finding, so the finding vanished
+  undeclared-and-unseen instead of declared-and-inventoried. `TestDeclarationDoesNotSilentlyDeleteAFinding`
+  pins that every detector's declared mutation stays found, and marked `declared`.
+- **A detector must fire only through the profile it is supposed to be reachable from.** T5, T11 and
+  T12 are deliberately excluded from `gate` so an untriaged backlog cannot disable the whole build
+  gate — bug 20 is proof that exclusion is not automatically respected by the dispatch code. The
+  harness scans each mutation with only `gate` detectors active and checks both directions: a `gate`
+  detector must still fire, and an excluded one must not.
 
 ## The bugs that justify this tool
 
