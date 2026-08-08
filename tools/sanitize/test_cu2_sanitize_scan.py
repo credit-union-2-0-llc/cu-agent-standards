@@ -112,6 +112,7 @@ class TestRulesFire(unittest.TestCase):
         ("Tailscale / mesh hostname", "ssh box" + ".ts.net"),
         ("Tailscale CGNAT", "ping " + "100." + "90.241.40"),
         ("Shared-services VNet", "vnet " + "10.40." + "1.7"),
+        ("Public/routable IP", "ssh to " + "51.132" + ".44.9"),
     ]
 
     def test_every_positive_sample_fires(self):
