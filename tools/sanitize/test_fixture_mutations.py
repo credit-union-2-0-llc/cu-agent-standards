@@ -135,6 +135,8 @@ MUTATIONS = {
         "call " + "541" + "-" + "555" + "-" + "0142",
     "Social security number":
         "ssn " + "123" + "-" + "45" + "-" + "6789",
+    "Public/routable IP address in infrastructure context":
+        "ssh to " + "51.132" + ".44.9",
     "Card-like PAN (Luhn-valid)":
         "card " + "4111 1111 " + "1111 1111",
     "Member / share / NMLS identifier":
@@ -355,6 +357,103 @@ class TestPunctuationBoundaryDoesNotBlindTheGate(unittest.TestCase):
         for label in BOUNDARY_MUTATIONS:
             with self.subTest(rule=label):
                 self.assertIn(label, rule_labels)
+
+
+# ---------------------------------------------------------------------------
+# SSN space-separated variant — 2026-08-07 gap
+#
+# The SSN rule only ever matched the dash-separated shape; a space-separated
+# SSN (three digits, a space, two digits, a space, four digits) passed clean
+# at any profile. Widened to accept either shape (consistently, not mixed)
+# without loosening the word-boundary
+# discipline. This mirrors the mutation-catalog pattern above: prove the
+# variant is caught through the real scan_file() pipeline, and prove the
+# gate does not overreach into a same-shaped false positive.
+# ---------------------------------------------------------------------------
+
+SSN_SPACE_TRIGGER = "ssn " + "123" + " " + "45" + " " + "6789"
+
+# Not an SSN: a run of numbers table-formatted with a mix of separators, or a
+# single space between two otherwise unrelated numeric fields, must not
+# collide with the widened rule. The rule requires a CONSISTENT separator
+# across both gaps, so a dash-then-space (or space-then-dash) run is exactly
+# the shape this guards against.
+SSN_MIXED_SEPARATOR_NON_TRIGGER = "field " + "123" + "-" + "45" + " " + "6789"
+
+
+class TestSSNSpaceSeparatedVariant(unittest.TestCase):
+
+    def test_space_separated_ssn_is_now_caught(self):
+        findings = scan_text(mutated(SSN_SPACE_TRIGGER))
+        found_labels = {f[2] for f in findings}
+        self.assertIn(
+            "Social security number", found_labels,
+            "a space-separated SSN went undetected -- this is the gap "
+            "documented in cu2_sanitize_scan.py's SSN rule comment",
+        )
+
+    def test_mixed_separator_is_not_treated_as_an_ssn(self):
+        findings = scan_text(mutated(SSN_MIXED_SEPARATOR_NON_TRIGGER))
+        found_labels = {f[2] for f in findings}
+        self.assertNotIn(
+            "Social security number", found_labels,
+            "a dash-then-space digit run false-positived as an SSN; the "
+            "widened rule must require a consistent separator",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Public/routable IP rule — 2026-08-07 gap
+#
+# There was no rule at all for a hardcoded public IP (only CGNAT and the
+# shared VNet range were covered), so a real CU2 VM's public address passed
+# clean even at --profile public. The new rule is deliberately narrow --
+# value must be a genuinely public, non-doc-example address (validator) AND
+# the line must read like real infrastructure is being configured or
+# connected to (context) -- specifically so it does NOT fire on the false
+# positives called out in its code comment: DNS-doc examples, CDN/Front Door
+# anycast mentions, and coincidental dotted-quad-shaped version strings.
+# These tests pin both the detection and the restraint.
+# ---------------------------------------------------------------------------
+
+_TEST_PUBLIC_IP = "51.132" + ".44.9"  # fabricated; not a real CU2 asset
+
+IP_NON_TRIGGERS = {
+    "no infra context at all":
+        "reach us for support at " + _TEST_PUBLIC_IP,
+    "RFC 5737 documentation range":
+        "curl http://" + "203.0.113" + ".5" + " for an example",
+    "well-known public DNS resolver":
+        "ssh through a box that forwards to " + "8.8.8.8",
+    "CGNAT mesh address (covered by its own rule, not this one)":
+        "ssh to " + "100." + "90.241.40",
+    "shared VNet address (covered by its own rule, not this one)":
+        "ssh to " + "10.40." + "1.7",
+}
+
+
+class TestPublicInfraIPRule(unittest.TestCase):
+
+    def test_public_ip_in_infra_context_is_caught(self):
+        findings = scan_text(mutated("ssh to " + _TEST_PUBLIC_IP))
+        found_labels = {f[2] for f in findings}
+        self.assertIn(
+            "Public/routable IP address in infrastructure context",
+            found_labels,
+            "a hardcoded public IP referenced in an infra context "
+            "(ssh/scp/firewall/etc.) went undetected",
+        )
+
+    def test_non_trigger_shapes_stay_clean(self):
+        for reason, line in IP_NON_TRIGGERS.items():
+            with self.subTest(reason=reason):
+                findings = scan_text(mutated(line))
+                found_labels = {f[2] for f in findings}
+                self.assertNotIn(
+                    "Public/routable IP address in infrastructure context",
+                    found_labels,
+                    f"false positive ({reason}): {line!r}",
+                )
 
 
 # ---------------------------------------------------------------------------

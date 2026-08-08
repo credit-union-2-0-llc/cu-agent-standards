@@ -58,6 +58,7 @@ The Agent Foundry (https://github.com/the-agent-foundry/foundry), MIT licensed:
 """
 
 import argparse
+import ipaddress
 import os
 import re
 import sys
@@ -193,6 +194,30 @@ AZURE_CONTEXT = re.compile(
 # routing/account number rather than an ordinary large integer.
 FININST_CONTEXT = re.compile(
     r"(?i)(?:routing|\baba\b|account\s*(?:number|no|#)|member\s*(?:number|no|#)|share\s*id|nmls)"
+)
+
+# A line must carry one of these before a bare dotted-quad is read as a
+# specific, real host rather than an incidental number that happens to have
+# the right shape. See `looks_like_a_public_infra_ip` for the other half of
+# this rule's false-positive defense (the value itself must be a real public
+# address, not just any four dot-separated numbers).
+#
+# Deliberately excludes generic words like "server" or "host" alone -- a
+# products doc that says "our checkout server" carries no address at all, and
+# tying the context list to that vocabulary would still fire wherever a
+# doc-example or CDN/anycast IP shows up near unrelated infra prose. What is
+# included instead is vocabulary that specifically implies THIS address is a
+# real, reachable endpoint someone would use: remote-access verbs (ssh/scp),
+# assignment-shaped mentions (public/static/external ip, ip address:, host:,
+# ip=), and perimeter/network-admin terms (firewall, nsg, security group,
+# allowlist, nat, ping/nslookup/dig/curl against it) that only show up when a
+# specific address is genuinely being configured against or connected to.
+INFRA_IP_CONTEXT = re.compile(
+    r"(?i)(?:\bssh\b|\bscp\b|\bvm\b|virtual\s+machine|"
+    r"(?:public|static|external|assigned)\s*[-_]?\s*ip\b|"
+    r"\bip[-_ ]?address\b|\bip\s*[:=]|\bhost(?:name)?\s*[:=]|"
+    r"\bfirewall\b|\bnsg\b|security\s+group|allow[-_ ]?list|\bnat\b|"
+    r"\bping\b|\bnslookup\b|\bdig\s|\bcurl\s|connect(?:ed|ing)?\s+to)"
 )
 
 Rule = namedtuple("Rule", "label tier regex context validator")
@@ -370,6 +395,63 @@ def _tenant_alternation():
     return "|".join(re.escape(name) for name in CU2_TENANT_NAMES)
 
 
+# Addresses that show up constantly in legitimate docs/configs as illustrative
+# examples, never as a real CU2 asset. Excluding them by name is far more
+# precise than trying to regex away every doc example:
+#   - the three IANA documentation ranges (RFC 5737: TEST-NET-1/2/3) are the
+#     standard "example.com but for IP addresses" -- anyone writing a network
+#     diagram or a curl example is *supposed* to reach for these instead of a
+#     real address;
+#   - a handful of famous public DNS resolvers get pasted into troubleshooting
+#     docs ("point your DNS at 8.8.8.8") constantly and belong to Google/
+#     Cloudflare/Quad9/OpenDNS, never to CU2.
+_PUBLIC_IP_DOC_NETS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
+)
+_PUBLIC_IP_KNOWN_RESOLVERS = {
+    "8.8.8.8", "8.8.4.4",                 # Google Public DNS
+    "1.1.1.1", "1.0.0.1",                 # Cloudflare
+    "9.9.9.9",                            # Quad9
+    "208.67.222.222", "208.67.220.220",   # OpenDNS
+}
+
+
+def looks_like_a_public_infra_ip(text):
+    """
+    True only for a dotted-quad that is (a) a syntactically valid IPv4
+    address, (b) globally routable -- not RFC 1918 / CGNAT / loopback /
+    link-local / multicast / reserved / unspecified, all of which Python's
+    `ipaddress.is_global` already screens out (verified: it also correctly
+    treats the RFC 5737 documentation ranges as non-global) -- and (c) not
+    one of the small set of addresses people paste into docs as an example
+    rather than a real CU2 asset (see `_PUBLIC_IP_DOC_NETS` /
+    `_PUBLIC_IP_KNOWN_RESOLVERS` above).
+
+    This is deliberately narrower than "any public IP": a blanket rule would
+    fire on every DNS-troubleshooting doc, every CDN/Front Door anycast
+    address mentioned in a deploy guide, and any dotted-quad-shaped version
+    string that happens to parse as a valid address. Paired with
+    `INFRA_IP_CONTEXT` (the line must also read like it is configuring
+    against or connecting to a specific host), the intent is to catch "a
+    hardcoded public IP of one of our own VMs in a config or credential
+    context," not "an IP address was mentioned."
+    """
+    try:
+        ip = ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    if not isinstance(ip, ipaddress.IPv4Address):
+        return False
+    if not ip.is_global or ip.is_multicast:
+        return False
+    if text in _PUBLIC_IP_KNOWN_RESOLVERS:
+        return False
+    if any(ip in net for net in _PUBLIC_IP_DOC_NETS):
+        return False
+    return True
+
+
 RULES = [
     # ---- secret -----------------------------------------------------------
     rule("Private key block", "secret",
@@ -463,8 +545,17 @@ RULES = [
          r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", validator=external_email),
     rule("Phone number", "pii",
          r"(?<![\w.])(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}(?![\w])"),
+    # Widened 2026-08-07: the dash-only form missed the equally common
+    # space-separated SSN shape (`\d{3} \d{2} \d{4}`), which passed clean at
+    # any profile. The two accepted shapes use a consistent separator (all
+    # dashes or all spaces) rather than an unrestricted `[- ]` between every
+    # group -- a real SSN is written one way or the other, never mixed, and
+    # requiring consistency avoids a stray match on things like a hyphenated
+    # code sitting on the same line as an unrelated numeric group. Same
+    # word-boundary discipline as before on both shapes, so a longer digit
+    # run (a tracking number, a phone extension) still cannot partially match.
     rule("Social security number", "pii",
-         r"(?<![\w-])\d{3}-\d{2}-\d{4}(?![\w-])"),
+         r"(?<![\w-])(?:\d{3}-\d{2}-\d{4}|\d{3} \d{2} \d{4})(?![\w-])"),
     rule("Card-like PAN (Luhn-valid)", "pii",
          r"(?<![\w-])(?:\d{4}[ -]){3}\d{4}(?![\w-])", validator=luhn_valid),
     rule("Member / share / NMLS identifier", "pii",
@@ -509,6 +600,20 @@ RULES = [
          r"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b"),
     rule("Shared-services VNet address (10.40.0.0/16)", "internal",
          r"\b10\.40\.\d{1,3}\.\d{1,3}\b"),
+
+    # Added 2026-08-07: the two rules above only ever covered the CGNAT mesh
+    # range and the shared VNet -- there was no rule at all for a hardcoded
+    # PUBLIC/routable IP (e.g. a CU2 VM's public Azure address), so one
+    # passed clean at every profile including `public`. This does not gate
+    # on "any public IP" -- see `looks_like_a_public_infra_ip`'s docstring
+    # for why that would drown repos in false positives from DNS-doc
+    # examples, CDN/Front Door anycast addresses, and coincidental
+    # dotted-quad-shaped version strings. Both the value (validator) and the
+    # surrounding line (context) have to look like real infrastructure
+    # before this fires.
+    rule("Public/routable IP address in infrastructure context", "internal",
+         r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
+         context=INFRA_IP_CONTEXT, validator=looks_like_a_public_infra_ip),
 ]
 
 BROAD_ALLOWLIST_PATTERNS = {".*", "^.*$", ".+", "^.+$", "(.*)", "^.*", ".*$"}
