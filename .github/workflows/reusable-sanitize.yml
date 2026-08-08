@@ -20,6 +20,10 @@
 #       with:
 #         profile: public   # default; use "internal" only for a private repo
 #
+# A pre-flight allowlist-drift check (tools/sanitize/check_allowlist_drift.py)
+# runs before the scan below by default on every caller, no extra `with:`
+# needed — set `check-allowlist-drift: false` only to temporarily bypass it.
+#
 # No secrets, no tokens, no organisation settings. This source repository is
 # public, so a caller of any visibility can use it.
 #
@@ -47,6 +51,18 @@ on:
           (the default) to track main.
         type: string
         default: ""
+      check-allowlist-drift:
+        description: >-
+          Pre-flight: verify every entry in the caller's own .cu2-sanitize-allow
+          still matches live tracked content, and fail before the full scan if
+          not. Catches an allowlist that went silently stale (a nearby comment
+          reworded, an allowlisted file renamed/moved) instead of leaving it to
+          be discovered as a mystery gate failure on an unrelated PR — see
+          tools/sanitize/check_allowlist_drift.py's module docstring for the
+          two real incidents this closes. Enabled by default; set false only
+          if a repo needs a temporary exception while an entry is being fixed.
+        type: boolean
+        default: true
 
 jobs:
   sanitize:
@@ -89,6 +105,20 @@ jobs:
           # matches an isolated positive sample. See that file's docstring
           # for the regression this closes.
           python3 .cu2-sanitize/tools/sanitize/test_fixture_mutations.py
+
+      # PRE-FLIGHT, on the CALLER's own checkout (not .cu2-sanitize/, which is
+      # this tool's own vendored copy). Runs before the blocking full scan
+      # below on purpose: an allowlist entry that stopped matching anything
+      # means the full scan is about to fail (or, worse, silently pass for the
+      # wrong reason) for a cause that has nothing to do with whatever this PR
+      # actually changed — see check_allowlist_drift.py's module docstring.
+      # Every caller gets this the moment it lands here, no per-repo setup, the
+      # same propagation model as every other correction to this workflow.
+      - name: Pre-flight — allowlist drift in the caller's own .cu2-sanitize-allow
+        if: inputs.check-allowlist-drift
+        run: |
+          set -euo pipefail
+          python3 .cu2-sanitize/tools/sanitize/check_allowlist_drift.py . --tracked-only
 
       # BLOCKING. Full scan, every tracked file, every run — not a ratchet.
       - name: Sanitize gate (full scan)

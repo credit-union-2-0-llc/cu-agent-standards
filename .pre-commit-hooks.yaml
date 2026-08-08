@@ -32,3 +32,14 @@
   language: system
   pass_filenames: false
   always_run: true
+
+- id: cu2-allowlist-drift
+  name: CU2 allowlist drift check
+  description: >-
+    Verifies every .cu2-sanitize-allow entry still matches live tracked
+    content; catches an entry gone stale from a reworded comment or a
+    renamed file before it surfaces as a mystery gate failure later.
+  entry: python3 tools/sanitize/check_allowlist_drift.py .
+  language: system
+  pass_filenames: false
+  always_run: true
