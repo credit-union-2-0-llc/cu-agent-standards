@@ -67,6 +67,18 @@ figure that isn't dated — this repository has gone stale on exactly this kind 
 (see the front-page ledger-count story in [`README.md`](README.md)), and would rather fail your build
 than do it a third time.
 
+## What never lands here: internal `.planning/`-style roadmap docs
+
+This repo publishes pattern-level material — principles, gates, skills, agent archetypes, security
+architecture notes — adapted from real incidents, but never the internal project-management layer
+those incidents happened inside: sprint boards, phase-by-phase build plans, decision logs, or any
+other GSD-style `.planning/` artifact. That's a standing policy decision (2026-08-08), not an
+oversight — those docs describe *how a specific engagement was run*, not a reusable pattern, and they
+tend to carry client/engagement detail that's expensive to sanitize correctly and cheap to just not
+publish. If you're adapting an incident into a skill or archetype, write the generalized lesson
+(matching the existing worked examples in `skills/examples/`), not a redacted copy of the planning doc
+it came from.
+
 ## Branch and PR naming actually used here
 
 Feature branches are named `<type>/<short-kebab-description>` most of the time —
