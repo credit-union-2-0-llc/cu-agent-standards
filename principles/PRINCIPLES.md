@@ -17,7 +17,9 @@ paper trail that survives without them in the room.
    passing" note from three PRs ago can be stale or simply wrong. [`tools/theater`](../tools/theater)
    exists because a two-week audit of our own estate found its own pentest scanner masking scan
    failures — the control that was supposed to catch this class of defect was itself lying. Re-check
-   before trusting.
+   before trusting. See [`finding-classification.md`](finding-classification.md) for the named
+   category this failure shape gets in a review's findings — `review_machinery`, not just a severe
+   `direct` finding.
 
 2. **Narrow, reversible edits over broad ones.** A single combined diff that bundles an unrelated
    change into a sensitive file is harder to review, harder to revert, and more likely to trip a
@@ -31,7 +33,9 @@ paper trail that survives without them in the room.
 4. **Least privilege, flagged rather than silently accepted.** When a fix surfaces a broader problem
    than what was asked — a service principal scoped to an entire subscription instead of one resource
    group — record it and flag it. Do not quietly expand scope to "fix it while you're in there," and
-   do not let it disappear into an unread log either.
+   do not let it disappear into an unread log either. This is the `adjacent` relationship in
+   [`finding-classification.md`](finding-classification.md): real, worth acting on, and explicitly not
+   this task's to act on alone.
 
 5. **Fail closed, not open.** A control that breaks should deny by default, not silently grant access
    or report success. An auth check with a configuration error that populates a valid-looking session
