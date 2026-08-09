@@ -27,6 +27,15 @@ frontmatter and body for exactly what happened and what guardrail it produced.
   - [`examples/dependency-cve-remediation.md`](examples/dependency-cve-remediation.md) — closing
     dependency vulnerability alerts with real verification, and treating any credential or
     deploy-pipeline gap the fix surfaces as its own, higher-scrutiny piece of work.
+  - [`examples/tenant-isolation-bug-audit.md`](examples/tenant-isolation-bug-audit.md) — tracing raw
+    queries and nested transactions back to whether they engage a multi-tenant repository's
+    row-level-security context, proven with a real two-tenant fixture test rather than a mock.
+  - [`examples/first-deploy-bug-triage.md`](examples/first-deploy-bug-triage.md) — pre-flight checks
+    and a fixed triage order for the bug class that only surfaces once a new service's first real
+    cloud deploy engages real auth, RLS, runtime images, and architecture.
+  - [`examples/credential-rotation-verification.md`](examples/credential-rotation-verification.md) —
+    verifying a credential isn't stored or depended on elsewhere, across every shared secret store and
+    every repository in the org, before rotating, deleting, or narrowing it.
 
 ## How to build one
 
