@@ -52,6 +52,19 @@ itself has a false positive or a missed detection, that gets a named, dated regr
 tool's own changelog, not a silent patch. The bar is not "never wrong" — it is "never wrong twice, and
 never quiet about having been wrong once."
 
+## Finding classification
+
+Every finding this role produces gets tagged with a relationship, not just a severity — see
+[`finding-classification.md`](../../principles/finding-classification.md) for the full scheme.
+A leaked credential or an internal hostname the scan was built to catch is `direct`; severity
+decides what happens next. A code-quality issue noticed while scanning for leaks is `adjacent`
+— recorded and routed to whoever owns that scope, never fixed inline under this role's mandate.
+A control that reports success without actually checking the failure condition it exists to
+catch — this repo's `tools/theater` was built after exactly that: an audit found its own
+pentest scanner masking scan failures — is `review_machinery`, and escalates immediately
+regardless of severity, because it means every prior clean report from that control is now
+suspect, not just the one instance caught.
+
 ## Approval boundaries
 
 The agent may run scans, propose fixes, and author allowlist entries with a documented reason
