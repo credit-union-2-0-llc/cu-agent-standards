@@ -223,9 +223,16 @@ class TestAgainstThisRepository(unittest.TestCase):
         self.assertEqual(code, 0, f"this repository violates its own schemas:\n{out}")
 
     def test_repo_actually_has_artifacts_to_check(self):
-        """Guard against a green run that checked nothing."""
+        """Guard against a green run that checked nothing.
+
+        Anchored to "CLEAN. 0 artifact(s)" (the exact zero-count render of
+        format_lint's own f-string), not the bare substring "0 artifact(s)" —
+        that substring is also present inside "10 artifact(s)", "20
+        artifact(s)", etc., so the original assertion would have started
+        failing the moment the real count crossed into any total ending in
+        0. Caught when this repo's own artifact count went 5 -> 10."""
         _, out = run(REPO)
-        self.assertNotIn("0 artifact(s)", out)
+        self.assertNotIn("CLEAN. 0 artifact(s)", out)
 
 
 if __name__ == "__main__":
