@@ -37,6 +37,12 @@ moment.
   - [`archetypes/dependency-remediator.md`](archetypes/dependency-remediator.md) — triages CVE and
     dependency alerts across repositories, verifies each fix before proposing it, and treats live
     credential and deploy-pipeline changes as a distinct, higher-scrutiny tier of work.
+  - [`archetypes/tenant-isolation-auditor.md`](archetypes/tenant-isolation-auditor.md) — traces raw
+    queries and nested transactions in a multi-tenant repository back to whether they actually engage
+    the row-level-security tenant boundary, and proves each fix with a real two-tenant fixture test.
+  - [`archetypes/deploy-verification-specialist.md`](archetypes/deploy-verification-specialist.md) —
+    owns the debug cycle a new service's first real cloud deploy predictably produces (RLS, native
+    runtime deps, architecture, secret format) — the exact conditions a local test suite bypasses.
 
 ## Depth note
 
