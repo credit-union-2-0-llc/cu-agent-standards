@@ -66,6 +66,30 @@ first would turn the package name into `""` and the gate would silently stop
 covering every scoped package — the same silent-coverage-loss class it exists to
 catch.
 
+## What it does NOT tell you
+
+**This gate is complementary to Dependabot, not a superset of it.** `pnpm audit`
+reads the npm advisory database; Dependabot reads the GitHub Advisory Database.
+Observed on the same day, in the same estate, they disagreed **in both
+directions**:
+
+- one repository had a `browserslist` advisory Dependabot flagged and
+  `pnpm audit` never reported — at either of that repo's two lockfiles
+- another had `tmp` and `js-yaml` advisories `pnpm audit` reported and
+  Dependabot did not flag at all
+
+The second pair were live dead pins, caught by this gate on its first run in a
+repository whose Dependabot alerts had just been swept to zero.
+
+So: **a green gate means no pin is holding open an advisory that `pnpm audit`
+knows about.** It is not a statement that the repository has no open alerts, and
+zero Dependabot alerts is not a prediction that this gate will pass. Run both.
+
+**It checks one directory per invocation.** A repository with more than one
+lockfile needs one job per lockfile — see the `working-directory` input. A repo
+where a second project sits outside the root workspace is exactly where an
+"all alerts closed" sweep quietly isn't.
+
 ## Exit codes
 
 | | |
