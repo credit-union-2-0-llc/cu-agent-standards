@@ -8,6 +8,7 @@ forty lines that are fully tested.
 Handles exactly what is needed and nothing else:
 
   * comparators      <  <=  >  >=  =  ==  (and a bare version, meaning =)
+  * X-ranges         3  3.1  3.1.x   (partial versions, per npm semver)
   * caret and tilde  ^1.2.3   ~1.2.3
   * wildcard         *  x  (any version)
   * AND by space or comma   ">=3.0.0 <3.1.6"   ">= 3.0.0, < 3.1.6"
@@ -49,6 +50,40 @@ def parse_version(text):
     return tuple(out)
 
 
+_PARTIAL = re.compile(r"^\d+(\.\d+)?$")
+
+
+def is_exact_version(text):
+    """True only for a fully-specified version like '3.1.6'.
+
+    A partial version is an X-RANGE, not a pin: npm/pnpm read '3.1' as
+    '>=3.1.0 <3.2.0', so it REACHES 3.1.6. Treating it as the exact version
+    3.1.0 would condemn a pin that is actually fine — and a false positive is
+    how a security gate gets switched off.
+    """
+    if text is None:
+        return False
+    body = str(text).strip().lstrip("v=")
+    if _PARTIAL.match(body):          # '3' or '3.1' -> X-range, not exact
+        return False
+    return parse_version(body) is not None
+
+
+def _xrange_bounds(text):
+    """'3' -> ((3,0,0),(4,0,0)) ; '3.1' / '3.1.x' -> ((3,1,0),(3,2,0)).
+
+    Returns None when the text is not a partial/wildcard version.
+    """
+    body = str(text).strip().lstrip("v=")
+    body = re.sub(r"\.[xX*]", "", body)
+    if not _PARTIAL.match(body):
+        return None
+    parts = [int(p) for p in body.split(".")]
+    if len(parts) == 1:
+        return (parts[0], 0, 0), (parts[0] + 1, 0, 0)
+    return (parts[0], parts[1], 0), (parts[0], parts[1] + 1, 0)
+
+
 def _cmp(a, b):
     return (a > b) - (a < b)
 
@@ -63,6 +98,15 @@ def _satisfies_comparator(version, comp):
     if not m:
         return False
     op, rest = m.group(1) or "=", m.group(2)
+
+    # A bare partial version is an X-range: '3.1' means >=3.1.0 <3.2.0, which
+    # INCLUDES 3.1.6. Handled before the exact-equality branch below.
+    if op in ("=", "=="):
+        bounds = _xrange_bounds(rest)
+        if bounds is not None:
+            lo, hi = bounds
+            return _cmp(version, lo) >= 0 and _cmp(version, hi) < 0
+
     target = parse_version(rest)
     if target is None:
         return False
@@ -129,9 +173,17 @@ def min_patched(patched_range):
     """
     if not patched_range:
         return None
+    floors = []
     for or_branch in str(patched_range).split("||"):
         for clause in _split_and(or_branch):
             m = re.match(r"^(>=|=|==|\^|~)?\s*(\d[\w.\-+]*)$", clause.strip())
-            if m and parse_version(m.group(2)) is not None:
-                return m.group(2).split("+", 1)[0].split("-", 1)[0]
-    return None
+            if m:
+                text = m.group(2).split("+", 1)[0].split("-", 1)[0]
+                parsed = parse_version(text)
+                if parsed is not None:
+                    floors.append((parsed, text))
+    if not floors:
+        return None
+    # ">=3.0.0 || >=2.1.0" must yield 2.1.0. Returning the FIRST floor would
+    # condemn a '^2.0.0' pin that legitimately reaches 2.1.0.
+    return min(floors)[1]

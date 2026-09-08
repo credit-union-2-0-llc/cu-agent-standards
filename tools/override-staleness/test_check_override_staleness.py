@@ -19,7 +19,9 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from semver_lite import satisfies, min_patched, parse_version  # noqa: E402
+from semver_lite import (  # noqa: E402
+    satisfies, min_patched, parse_version, is_exact_version,
+)
 from check_override_staleness import (  # noqa: E402
     split_override_key,
     parse_yaml_overrides,
@@ -68,6 +70,22 @@ class TestSemverLite(unittest.TestCase):
         self.assertEqual(min_patched(">= 6.16.0"), "6.16.0")
         self.assertIsNone(min_patched(""))
 
+    def test_min_patched_takes_the_lowest_floor_across_or_branches(self):
+        # Returning the FIRST floor would report 3.0.0 here and then condemn a
+        # '^2.0.0' pin that legitimately reaches 2.1.0.
+        self.assertEqual(min_patched(">=3.0.0 || >=2.1.0"), "2.1.0")
+
+    def test_partial_versions_are_x_ranges_not_exact_pins(self):
+        # npm/pnpm read '3.1' as '>=3.1.0 <3.2.0', so it REACHES 3.1.6.
+        # Treating it as the exact version 3.1.0 would condemn a healthy pin.
+        self.assertFalse(is_exact_version("3.1"))
+        self.assertFalse(is_exact_version("3"))
+        self.assertTrue(is_exact_version("3.1.6"))
+        self.assertTrue(satisfies("3.1.6", "3.1"))
+        self.assertFalse(satisfies("3.2.0", "3.1"))
+        self.assertTrue(satisfies("3.9.9", "3"))
+        self.assertTrue(satisfies("3.1.6", "3.1.x"))
+
 
 class TestOverrideKeySplitting(unittest.TestCase):
     def test_plain_and_selector_keys(self):
@@ -76,6 +94,32 @@ class TestOverrideKeySplitting(unittest.TestCase):
             split_override_key("fast-uri@>=3.0.0 <3.1.5"),
             ("fast-uri", ">=3.0.0 <3.1.5"),
         )
+
+    def test_pnpm_parent_selector_targets_the_CHILD(self):
+        # 'qar@1>zoo' overrides `zoo` where it is a dependency of qar@1. The
+        # overridden package is what follows the last '>', never the parent.
+        # Reading the parent means a `zoo` advisory never matches, is filed as
+        # upstream, and the gate returns 0 while the caller still forces a
+        # vulnerable zoo. Real keys of this shape are in the estate today:
+        # 'minimatch@3>brace-expansion'.
+        self.assertEqual(split_override_key("qar@1>zoo"), ("zoo", None))
+        self.assertEqual(
+            split_override_key("minimatch@3>brace-expansion"),
+            ("brace-expansion", None),
+        )
+        self.assertEqual(
+            split_override_key("foo@^1.0.0>@scope/bar@<2.0.0"),
+            ("@scope/bar", "<2.0.0"),
+        )
+
+    def test_parent_selector_advisory_actually_matches(self):
+        # End-to-end version of the above: the advisory is for the CHILD.
+        adv = {"module_name": "brace-expansion", "severity": "high",
+               "vulnerable_versions": "<1.1.18", "patched_versions": ">=1.1.18"}
+        held, upstream = evaluate(
+            [adv], {"minimatch@3>brace-expansion": [("1.1.17", "package.json overrides")]})
+        self.assertEqual([h["module_name"] for h in held], ["brace-expansion"])
+        self.assertEqual(upstream, [])
 
     def test_scoped_package_keeps_its_leading_at(self):
         # A scoped package BEGINS with '@'. Splitting on the FIRST '@' would
@@ -141,6 +185,12 @@ class TestPinIsDead(unittest.TestCase):
 
     def test_no_expressible_patched_floor_is_not_condemned(self):
         self.assertFalse(pin_is_dead("^1.0.0", "<2.0.0", None))
+
+    def test_partial_pin_is_treated_as_a_range(self):
+        # A '3.1' pin reaches 3.1.6, so it is NOT dead — another false-positive
+        # guard. '3.0' cannot reach 3.1.6, so that one is.
+        self.assertFalse(pin_is_dead("3.1", ">= 3.0.0, < 3.1.6", ">=3.1.6"))
+        self.assertTrue(pin_is_dead("3.0", ">= 3.0.0, < 3.1.6", ">=3.1.6"))
 
 
 ADV_FAST_URI = {

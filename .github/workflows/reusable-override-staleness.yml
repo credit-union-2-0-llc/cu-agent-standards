@@ -77,14 +77,15 @@ jobs:
           fetch-depth: 1
 
       # No token: this repository is public, so the caller's own GITHUB_TOKEN
-      # reads it. Mirrors reusable-theater.yml, including the job_workflow_sha
-      # fallback — it comes through empty in this context, so the chain lands
-      # on main.
+      # reads it. reusable-theater.yml also consults `github.job_workflow_sha`
+      # here; that property is not defined in this context (actionlint says so,
+      # and that workflow's own comment admits it arrives empty), so the branch
+      # is dead and is omitted rather than copied.
       - name: Fetch the detector
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: credit-union-2-0-llc/cu-agent-standards
-          ref: ${{ inputs.standards-ref != '' && inputs.standards-ref || (github.job_workflow_sha != '' && github.job_workflow_sha || 'main') }}
+          ref: ${{ inputs.standards-ref != '' && inputs.standards-ref || 'main' }}
           path: .cu2-override-staleness
           sparse-checkout: tools/override-staleness
           fetch-depth: 1
@@ -125,8 +126,16 @@ jobs:
       # BLOCKING. Exit 1 = a pin is holding an advisory open. Exit 2 = the check
       # could not run, which is also a failure: a check that did not run must
       # never read as a check that passed.
+      #
+      # `working-directory` reaches the shell through env, never by ${{ }}
+      # interpolation into the script. A caller controls that string, and
+      # interpolation would splice it into the command line — script injection
+      # into every adopting repository, from the one workflow meant to make
+      # them safer.
       - name: Check overrides against open advisories
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
         run: |
           set -euo pipefail
           python3 .cu2-override-staleness/tools/override-staleness/check_override_staleness.py \
-            "${{ inputs.working-directory }}" | tee -a "$GITHUB_STEP_SUMMARY"
+            "$WORKING_DIRECTORY" | tee -a "$GITHUB_STEP_SUMMARY"

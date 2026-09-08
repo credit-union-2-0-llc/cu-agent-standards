@@ -39,21 +39,41 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from semver_lite import satisfies, min_patched, parse_version  # noqa: E402
+from semver_lite import satisfies, min_patched, is_exact_version  # noqa: E402
 
 
 def split_override_key(raw_key):
-    """'fast-uri@>=3.0.0 <3.1.5' -> ('fast-uri', '>=3.0.0 <3.1.5').
+    """Return the package an override key actually TARGETS, plus its selector.
 
-    Scoped packages legitimately BEGIN with '@', so the selector separator is a
-    LATER '@' — never simply the first one. Getting this wrong turns
-    '@xmldom/xmldom' into '' and the gate silently stops covering scoped
-    packages, which is the same class of bug it exists to catch.
+        'fast-uri@>=3.0.0 <3.1.5'  -> ('fast-uri', '>=3.0.0 <3.1.5')
+        '@xmldom/xmldom@<0.8.13'   -> ('@xmldom/xmldom', '<0.8.13')
+        'minimatch@3>brace-expansion' -> ('brace-expansion', None)
+
+    Two ways to get this wrong, both of which make the gate silently stop
+    covering real pins — the exact defect class it exists to catch:
+
+    1. pnpm's PARENT SELECTOR. 'qar@1>zoo' overrides `zoo`, but only where it
+       is a dependency of qar@1. The overridden package is everything after the
+       last '>', NOT the parent. Reading the parent instead means an advisory
+       for `zoo` never matches, is filed as upstream, and the gate returns 0
+       while the caller still forces a vulnerable `zoo`.
+    2. SCOPED PACKAGES legitimately begin with '@', so the version separator is
+       a LATER '@' — never the first one.
     """
-    at = raw_key.rfind("@")
+    # Parent selector first: everything before it scopes the override and says
+    # nothing about which package is pinned.
+    #
+    # Not every '>' is that separator — 'fast-uri@>=3.0.0 <3.1.5' contains two
+    # that are comparison operators. The separator is a '>' NOT part of '>=' and
+    # followed by something a package name can start with (letter, '@', '_'); a
+    # comparison '>' is followed by a digit or a space. Take the LAST such
+    # match, so 'foo@>1.0.0>bar' still resolves to 'bar'.
+    matches = list(re.finditer(r">(?!=)(?=[A-Za-z@_])", raw_key))
+    target = raw_key[matches[-1].end():] if matches else raw_key
+    at = target.rfind("@")
     if at > 0:
-        return raw_key[:at], raw_key[at + 1:]
-    return raw_key, None
+        return target[:at], target[at + 1:]
+    return target, None
 
 
 def parse_yaml_overrides(text):
@@ -124,13 +144,13 @@ def pin_is_dead(pin_value, vulnerable_range, patched_range):
 
     An EXACT pin ('3.1.5') is dead when that exact version is still vulnerable.
 
-    A RANGE pin ('^6.15.2', '>=3.1.5 <4.0.0') is dead only when it CANNOT REACH
-    the patched version — '~3.1.5' cannot reach 3.2.0, but '^3.1.5' reaches
+    A RANGE pin ('^6.15.2', '>=3.1.5 <4.0.0', and partial X-ranges like '3.1')
+    is dead only when it CANNOT REACH the patched version — '~3.1.5' cannot reach 3.2.0, but '^3.1.5' reaches
     3.1.6 and is therefore fine. Treating a range pin like an exact one by
     coercing it to its floor produces false positives, which is the fastest way
     to get a security gate disabled.
     """
-    if parse_version(pin_value) is not None:
+    if is_exact_version(pin_value):
         return bool(satisfies(pin_value, vulnerable_range))
     floor = min_patched(patched_range)
     if floor is None:
