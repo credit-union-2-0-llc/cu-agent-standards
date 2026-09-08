@@ -1,0 +1,132 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Override staleness gate — reusable workflow
+#
+# Fails when a dependency override in the CALLING repository pins a version that
+# is still vulnerable. This is the one class of dependency defect nothing else
+# in the estate can see.
+#
+# An override exists to force a transitive dependency PAST a patched version. It
+# stops doing that not when someone edits it, but when the advisory WIDENS
+# underneath it. The pin does not change; the range does. The result installs
+# cleanly, reads as remediation in review, and leaves the alert open — and
+# Dependabot cannot help, because it has no way to raise a pull request against
+# a version you force. Open alerts, zero Dependabot PRs, every gate green.
+#
+# A point-in-time audit was tried first and fixed every dead pin it found. Weeks
+# later the count had grown back — not through neglect, but because advisories on
+# two widely-vendored packages widened afterwards. An audit cannot keep up with a
+# failure mode whose trigger is an advisory published later. Hence a gate.
+#
+# Usage in any repository — the whole of it:
+#
+#   name: Override staleness
+#   on:
+#     push: { branches: [main] }
+#     pull_request: {}
+#   jobs:
+#     overrides:
+#       uses: credit-union-2-0-llc/cu-agent-standards/.github/workflows/reusable-override-staleness.yml@main
+#
+# No secrets, no tokens, no organisation settings. This source repository is
+# public, so a caller of any visibility can use it.
+#
+# COST: no `pnpm install`. `pnpm audit` reads the lockfile, so the job is a
+# checkout and one registry call. Repositories without a pnpm-lock.yaml exit
+# clean with a notice rather than failing.
+#
+# SCOPE IS NARROW ON PURPOSE. Only advisories on packages the caller itself pins
+# will fail the build. Everything else is printed for context and left to
+# Dependabot, which can actually fix it. A gate that goes red for reasons nobody
+# in the calling repository can act on is a gate they switch off, and a
+# switched-off gate is worth nothing.
+#
+# See tools/override-staleness/README.md for the detector and its self-test.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Override Staleness (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory holding pnpm-lock.yaml, if not the repo root."
+        type: string
+        default: "."
+      pnpm-version:
+        description: >-
+          pnpm to install. Only used to run `pnpm audit`, which reads the
+          lockfile and does not install, so this rarely needs changing even in
+          a repository pinned to pnpm 9.
+        type: string
+        default: "10"
+      standards-ref:
+        description: >-
+          Override the ref this workflow takes the detector from. Leave empty
+          (the default) to track main.
+        type: string
+        default: ""
+
+jobs:
+  override-staleness:
+    name: Overrides must not pin a vulnerable version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+
+      # No token: this repository is public, so the caller's own GITHUB_TOKEN
+      # reads it. Mirrors reusable-theater.yml, including the job_workflow_sha
+      # fallback — it comes through empty in this context, so the chain lands
+      # on main.
+      - name: Fetch the detector
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: credit-union-2-0-llc/cu-agent-standards
+          ref: ${{ inputs.standards-ref != '' && inputs.standards-ref || (github.job_workflow_sha != '' && github.job_workflow_sha || 'main') }}
+          path: .cu2-override-staleness
+          sparse-checkout: tools/override-staleness
+          fetch-depth: 1
+
+      # FAIL CLOSED ON A MISSING DETECTOR.
+      #
+      # If the checkout above half-succeeds — wrong ref, a sparse pattern that
+      # matches nothing, a rename upstream — the next step would run nothing and
+      # the job would go green. Every adopting repository would then carry a
+      # passing badge for a gate that never executed. That is precisely the
+      # defect class this gate exists to catch, so it is asserted here, and the
+      # detector's own tests run before it is trusted to judge anyone's pins.
+      - name: Verify the detector arrived and is sane
+        run: |
+          set -euo pipefail
+          DIR=.cu2-override-staleness/tools/override-staleness
+          SCAN="$DIR/check_override_staleness.py"
+          if [ ! -f "$SCAN" ]; then
+            echo "::error::$SCAN not found — the cu-agent-standards checkout did"
+            echo "::error::not deliver the detector. Refusing to report a pass."
+            ls -R .cu2-override-staleness 2>/dev/null | head -40 \
+              || echo "(.cu2-override-staleness absent)"
+            exit 2
+          fi
+          echo "detector: $(git -C .cu2-override-staleness rev-parse --short HEAD)"
+          python3 "$DIR/test_check_override_staleness.py"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          version: ${{ inputs.pnpm-version }}
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      # BLOCKING. Exit 1 = a pin is holding an advisory open. Exit 2 = the check
+      # could not run, which is also a failure: a check that did not run must
+      # never read as a check that passed.
+      - name: Check overrides against open advisories
+        run: |
+          set -euo pipefail
+          python3 .cu2-override-staleness/tools/override-staleness/check_override_staleness.py \
+            "${{ inputs.working-directory }}" | tee -a "$GITHUB_STEP_SUMMARY"
