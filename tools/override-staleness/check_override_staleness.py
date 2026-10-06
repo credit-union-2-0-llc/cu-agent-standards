@@ -181,11 +181,12 @@ def evaluate(advisories, overrides):
     return held, upstream
 
 
-# package.json `packageManager` -> the exact pnpm version. The same pattern as the
-# wolf's `_pnpm_cmd` (cu2-standards tools/wolf/wolves/override_pins.py), so the
-# nightly and this gate run the same pnpm: an exact x.y.z, anything after it
-# (corepack's `+sha512.<hex>` integrity suffix) ignored.
-_PNPM_PIN_RE = re.compile(r"^pnpm@(\d+\.\d+\.\d+)")
+# package.json `packageManager` -> the exact pnpm version. The WHOLE value must
+# be `pnpm@x.y.z`, optionally followed by corepack's integrity suffix
+# (`+sha512.<hex>`). A prerelease (`pnpm@11.1.3-rc.1`), a tag or anything else
+# is unpinned: reading a prefix would hand corepack a version the repo does not
+# run. `\Z`, not `$`, so a trailing newline is not accepted either.
+_PNPM_PIN_RE = re.compile(r"^pnpm@(\d+\.\d+\.\d+)(?:\+sha\d+\.[0-9a-fA-F]+)?\Z")
 
 
 def pinned_pnpm_version(root):
@@ -260,9 +261,37 @@ def run_audit(root):
             % (" ".join(cmd), (proc.stderr or "").strip()[:400])
         )
     try:
-        return json.loads(proc.stdout)
+        report = json.loads(proc.stdout)
     except ValueError:
         raise RuntimeError("`pnpm audit` output was not valid JSON")
+    return _require_audit_report(report)
+
+
+def _require_audit_report(report):
+    """Return `report` only if it is an audit REPORT, else raise.
+
+    pnpm exits 1 both when it finds vulnerabilities (a real result) and when the
+    audit itself failed, and a failure is ALSO valid JSON:
+    `{"error": {"code": "ECONNREFUSED", "message": ...}}` from pnpm 9/10,
+    `{"error": {"code": "pnpm", "message": "fetch failed"}}` from pnpm 11.
+    Read as a report it has no advisories, and the gate would print OK for a
+    check that never ran. So the shape decides, not the exit code: every real
+    report (measured with pnpm 9.15.9, 10.18.3 and 11.1.3, clean or not) has an
+    `advisories` dict and a `metadata` dict.
+    """
+    if isinstance(report, dict) and "error" in report:
+        err = report["error"]
+        if isinstance(err, dict):
+            err = "%s: %s" % (err.get("code"), err.get("message"))
+        raise RuntimeError("`pnpm audit` reported an error: %s" % str(err)[:400])
+    if not (isinstance(report, dict)
+            and isinstance(report.get("advisories"), dict)
+            and isinstance(report.get("metadata"), dict)):
+        shape = sorted(report) if isinstance(report, dict) else type(report).__name__
+        raise RuntimeError(
+            "`pnpm audit` output is not a pnpm audit report (needs an `advisories` "
+            "object and a `metadata` object; got %s)" % str(shape)[:200])
+    return report
 
 
 def main(argv):
