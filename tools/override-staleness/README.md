@@ -41,6 +41,14 @@ way in the same file a few weeks on. Nobody had done anything wrong in between.
 
 1. `pnpm audit --json` — reads the **lockfile**, so there is no `pnpm install`
    and the whole job is a checkout plus one registry call.
+   pnpm is reached the way the wolf nightly reaches it: `corepack pnpm@<x.y.z>`
+   when `package.json` `packageManager` pins an exact pnpm and corepack is on
+   PATH, otherwise bare `pnpm`. A host with no global pnpm (the Spark nightly
+   runner) still works; with neither, the check exits 2 naming what is missing.
+   Only an exact `pnpm@x.y.z` (optionally `+sha512.<hex>`) counts as a pin; a
+   prerelease or tag is unpinned. pnpm exits 1 both for findings and for a
+   failed audit, so the OUTPUT decides: a report must carry an `advisories`
+   object and a `metadata` object, and an `{"error": ...}` result exits 2.
 2. Collects declared overrides from all three homes:
    `package.json` → `overrides`, `package.json` → `pnpm.overrides`,
    `pnpm-workspace.yaml` → `overrides:`.

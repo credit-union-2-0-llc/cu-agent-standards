@@ -35,6 +35,7 @@ Exit 2  the check could not run. A check that did not run must never read as a
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -180,29 +181,117 @@ def evaluate(advisories, overrides):
     return held, upstream
 
 
+# package.json `packageManager` -> the exact pnpm version. The WHOLE value must
+# be `pnpm@x.y.z`, optionally followed by corepack's integrity suffix
+# (`+sha512.<hex>`). A prerelease (`pnpm@11.1.3-rc.1`), a tag or anything else
+# is unpinned: reading a prefix would hand corepack a version the repo does not
+# run. `\Z`, not `$`, so a trailing newline is not accepted either.
+_PNPM_PIN_RE = re.compile(r"^pnpm@(\d+\.\d+\.\d+)(?:\+sha\d+\.[0-9a-fA-F]+)?\Z")
+
+
+def pinned_pnpm_version(root):
+    """The exact pnpm version `package.json` `packageManager` pins, or None.
+
+    Anything that is not `pnpm@x.y.z` — no package.json, invalid JSON, another
+    package manager, `pnpm@latest`, a bare major — is unpinned. Unpinned is not
+    an error: it only means corepack is not used (see pnpm_cmd).
+    """
+    try:
+        with open(os.path.join(root, "package.json"), encoding="utf-8") as fh:
+            pkg = json.load(fh)
+    except (ValueError, OSError):
+        return None
+    pm = pkg.get("packageManager") if isinstance(pkg, dict) else None
+    m = _PNPM_PIN_RE.match(pm) if isinstance(pm, str) else None
+    return m.group(1) if m else None
+
+
+def pnpm_cmd(root, which=None):
+    """The argv prefix that runs pnpm for this repo, or None when none can run.
+
+    1. `corepack pnpm@<pin>` when packageManager pins pnpm and corepack is on
+       PATH. A host with no global pnpm (the Spark nightly runner, 2026-10-06:
+       ENOENT on 5 repos) still has corepack with node, and the pinned version
+       is the one the repo's own CI runs.
+    2. bare `pnpm` otherwise — no pin, or no corepack.
+
+    Never an unpinned corepack: it installs the LATEST pnpm, which is how an
+    unannounced pnpm major broke builds before.
+    """
+    which = which or shutil.which
+    version = pinned_pnpm_version(root)
+    if version and which("corepack"):
+        return ["corepack", "pnpm@%s" % version]
+    if which("pnpm"):
+        return ["pnpm"]
+    return None
+
+
 def run_audit(root):
     """`pnpm audit --json` reads the LOCKFILE — no node_modules, no install.
 
     It exits non-zero when it FINDS vulnerabilities, which is a successful run
     for our purposes. Only output that will not parse is a real failure.
     """
+    cmd = pnpm_cmd(root)
+    if cmd is None:
+        version = pinned_pnpm_version(root)
+        if version:
+            why = ("neither `corepack` (to run the pinned pnpm@%s) nor `pnpm` is on PATH"
+                   % version)
+        else:
+            why = ("`pnpm` is not on PATH, and package.json pins no exact pnpm "
+                   "(`packageManager: pnpm@x.y.z`) for corepack to run")
+        raise RuntimeError("could not execute `pnpm audit`: %s" % why)
     try:
         proc = subprocess.run(
-            ["pnpm", "audit", "--json"],
+            cmd + ["audit", "--json"],
             cwd=root, capture_output=True, text=True,
-            env={**os.environ, "CI": "true"},
+            env={**os.environ, "CI": "true",
+                 # A download prompt in a non-interactive run is a hang, and
+                 # corepack must never rewrite the caller's package.json.
+                 "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+                 "COREPACK_ENABLE_AUTO_PIN": "0"},
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise RuntimeError("could not execute `pnpm audit`: %s" % exc)
     if not (proc.stdout or "").strip():
         raise RuntimeError(
-            "`pnpm audit` produced no output. stderr: %s"
-            % (proc.stderr or "").strip()[:400]
+            "`pnpm audit` (%s) produced no output. stderr: %s"
+            % (" ".join(cmd), (proc.stderr or "").strip()[:400])
         )
     try:
-        return json.loads(proc.stdout)
+        report = json.loads(proc.stdout)
     except ValueError:
         raise RuntimeError("`pnpm audit` output was not valid JSON")
+    return _require_audit_report(report)
+
+
+def _require_audit_report(report):
+    """Return `report` only if it is an audit REPORT, else raise.
+
+    pnpm exits 1 both when it finds vulnerabilities (a real result) and when the
+    audit itself failed, and a failure is ALSO valid JSON:
+    `{"error": {"code": "ECONNREFUSED", "message": ...}}` from pnpm 9/10,
+    `{"error": {"code": "pnpm", "message": "fetch failed"}}` from pnpm 11.
+    Read as a report it has no advisories, and the gate would print OK for a
+    check that never ran. So the shape decides, not the exit code: every real
+    report (measured with pnpm 9.15.9, 10.18.3 and 11.1.3, clean or not) has an
+    `advisories` dict and a `metadata` dict.
+    """
+    if isinstance(report, dict) and "error" in report:
+        err = report["error"]
+        if isinstance(err, dict):
+            err = "%s: %s" % (err.get("code"), err.get("message"))
+        raise RuntimeError("`pnpm audit` reported an error: %s" % str(err)[:400])
+    if not (isinstance(report, dict)
+            and isinstance(report.get("advisories"), dict)
+            and isinstance(report.get("metadata"), dict)):
+        shape = sorted(report) if isinstance(report, dict) else type(report).__name__
+        raise RuntimeError(
+            "`pnpm audit` output is not a pnpm audit report (needs an `advisories` "
+            "object and a `metadata` object; got %s)" % str(shape)[:200])
+    return report
 
 
 def main(argv):

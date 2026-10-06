@@ -13,9 +13,14 @@ shapes. Where a case exists to stop a FALSE POSITIVE it says so, because a
 security gate that cries wolf gets switched off and then protects nothing.
 """
 
+import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,6 +32,10 @@ from check_override_staleness import (  # noqa: E402
     parse_yaml_overrides,
     pin_is_dead,
     evaluate,
+    pinned_pnpm_version,
+    pnpm_cmd,
+    run_audit,
+    main,
 )
 
 
@@ -225,6 +234,240 @@ class TestEvaluate(unittest.TestCase):
 
     def test_no_advisories_holds_nothing(self):
         self.assertEqual(evaluate([], {"qs": [("6.16.0", "x")]}), ([], []))
+
+
+def _which(*present):
+    """A `shutil.which` that finds only the named tools."""
+    return lambda name: "/usr/bin/" + name if name in present else None
+
+
+# What `pnpm audit --json` really emits, measured 2026-10-06 with corepack
+# pnpm@9.15.9 / 10.18.3 / 11.1.3. A report ALWAYS has an `advisories` dict
+# (empty when clean) and a `metadata` dict; 9 and 10 add `actions` and `muted`.
+# A failed audit is a JSON object with only `error`, and pnpm exits 1 for both,
+# so the exit code cannot tell them apart; only the shape can.
+_METADATA = {"vulnerabilities": {"info": 0, "low": 0, "moderate": 0, "high": 0, "critical": 0},
+             "dependencies": 1, "devDependencies": 0, "optionalDependencies": 0,
+             "totalDependencies": 1}
+CLEAN_REPORT = {"actions": [], "advisories": {}, "muted": [], "metadata": _METADATA}
+PNPM10_ERROR = {"error": {"code": "ECONNREFUSED",
+                          "message": "request to http://127.0.0.1:9/-/npm/v1/security/audits "
+                                     "failed, reason: connect ECONNREFUSED 127.0.0.1:9"}}
+PNPM11_ERROR = {"error": {"code": "pnpm", "message": "fetch failed"}}
+
+
+class _Proc:
+    def __init__(self, stdout, stderr="", returncode=1):
+        self.stdout, self.stderr, self.returncode = stdout, stderr, returncode
+
+
+class TestPnpmCommand(unittest.TestCase):
+    """How `pnpm audit` is reached on a host that may have no `pnpm` on PATH.
+
+    2026-10-06: the Spark nightly wolf runner has corepack but no `pnpm`, and a
+    bare `["pnpm", "audit", "--json"]` failed with ENOENT on 5 repositories
+    (`override_pins incomplete`). The command now mirrors the wolf's own
+    `_pnpm_cmd` (cu2-standards tools/wolf/wolves/override_pins.py): the repo's
+    `packageManager` pin through corepack, else bare `pnpm`. No real pnpm or
+    corepack is ever run here; `shutil.which` and `subprocess.run` are mocked.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+
+    def write_pkg(self, content):
+        with open(os.path.join(self.root, "package.json"), "w", encoding="utf-8") as fh:
+            fh.write(content if isinstance(content, str) else json.dumps(content))
+
+    def test_the_command_is_built_from_package_manager(self):
+        self.write_pkg({"packageManager": "pnpm@11.1.3"})
+        self.assertEqual(pinned_pnpm_version(self.root), "11.1.3")
+        self.assertEqual(pnpm_cmd(self.root, which=_which("corepack")),
+                         ["corepack", "pnpm@11.1.3"])
+
+    def test_corepack_integrity_suffix_is_dropped(self):
+        self.write_pkg({"packageManager": "pnpm@9.15.9+sha512.abc123"})
+        self.assertEqual(pnpm_cmd(self.root, which=_which("corepack", "pnpm")),
+                         ["corepack", "pnpm@9.15.9"])
+
+    def test_a_full_sha512_integrity_suffix_is_still_pinned(self):
+        # The form `corepack use pnpm@x` writes into package.json.
+        self.write_pkg({"packageManager": "pnpm@10.18.3+sha512." + "0f" * 64})
+        self.assertEqual(pinned_pnpm_version(self.root), "10.18.3")
+
+    def test_a_prerelease_pin_is_unpinned_never_truncated(self):
+        # Reading `pnpm@11.1.3-rc.1` as 11.1.3 would audit with a version the
+        # repo does not run. Unpinned means bare pnpm, never a wrong corepack.
+        for pm in ("pnpm@11.1.3-rc.1", "pnpm@11.1.3-alpha", "pnpm@11.1.3junk",
+                   "pnpm@11.1.3+", "pnpm@11.1.3+sha512.", "pnpm@11.1.3+sha512.xyz",
+                   "pnpm@11.1.3+md5.abc", "pnpm@11.1.3 ", " pnpm@11.1.3"):
+            with self.subTest(packageManager=pm):
+                self.write_pkg({"packageManager": pm})
+                self.assertIsNone(pinned_pnpm_version(self.root))
+                self.assertEqual(pnpm_cmd(self.root, which=_which("corepack", "pnpm")),
+                                 ["pnpm"])
+
+    def test_corepack_is_preferred_over_a_pnpm_on_path(self):
+        # The pinned version is the one the repo's own CI runs; a stray global
+        # pnpm of another major must not win just because it is on PATH.
+        self.write_pkg({"packageManager": "pnpm@11.1.3"})
+        self.assertEqual(pnpm_cmd(self.root, which=_which("corepack", "pnpm")),
+                         ["corepack", "pnpm@11.1.3"])
+
+    def test_falls_back_to_bare_pnpm_when_corepack_is_absent(self):
+        self.write_pkg({"packageManager": "pnpm@11.1.3"})
+        self.assertEqual(pnpm_cmd(self.root, which=_which("pnpm")), ["pnpm"])
+
+    def test_without_a_pin_corepack_is_never_used(self):
+        # An unpinned corepack installs the LATEST pnpm (pnpm 12 broke Docker
+        # builds that way), so no pin means bare pnpm or nothing.
+        self.write_pkg({"name": "x"})
+        self.assertEqual(pnpm_cmd(self.root, which=_which("corepack", "pnpm")), ["pnpm"])
+        self.assertIsNone(pnpm_cmd(self.root, which=_which("corepack")))
+
+    def test_nothing_runnable_is_none(self):
+        self.write_pkg({"packageManager": "pnpm@11.1.3"})
+        self.assertIsNone(pnpm_cmd(self.root, which=_which()))
+
+    def test_malformed_package_manager_is_treated_as_unpinned(self):
+        for bad in ("pnpm@latest", "pnpm@11", "pnpm", "yarn@4.1.0", "npm@10.0.0",
+                    "", 11, None, ["pnpm@11.1.3"]):
+            with self.subTest(packageManager=bad):
+                self.write_pkg({"packageManager": bad})
+                self.assertIsNone(pinned_pnpm_version(self.root))
+                self.assertEqual(pnpm_cmd(self.root, which=_which("corepack", "pnpm")),
+                                 ["pnpm"])
+
+    def test_unreadable_or_absent_package_json_is_unpinned(self):
+        self.assertIsNone(pinned_pnpm_version(self.root))  # no package.json at all
+        for bad in ("{not json", "[]", '"pnpm@11.1.3"'):
+            with self.subTest(package_json=bad):
+                self.write_pkg(bad)
+                self.assertIsNone(pinned_pnpm_version(self.root))
+
+    def test_run_audit_runs_the_chosen_command_with_json(self):
+        self.write_pkg({"packageManager": "pnpm@11.1.3"})
+        out = json.dumps(CLEAN_REPORT)
+        with mock.patch("check_override_staleness.shutil.which", _which("corepack")), \
+                mock.patch("check_override_staleness.subprocess.run",
+                           return_value=_Proc(out, returncode=0)) as run:
+            self.assertEqual(run_audit(self.root), CLEAN_REPORT)
+        argv = run.call_args.args[0]
+        self.assertEqual(argv, ["corepack", "pnpm@11.1.3", "audit", "--json"])
+        self.assertEqual(run.call_args.kwargs["cwd"], self.root)
+        env = run.call_args.kwargs["env"]
+        # A corepack download prompt in a cron job is a hang.
+        self.assertEqual(env["COREPACK_ENABLE_DOWNLOAD_PROMPT"], "0")
+        self.assertEqual(env["CI"], "true")
+
+    def test_audit_env_carries_the_corepack_guards_and_the_callers_environment(self):
+        # Each guard is pinned on its own: deleting either from run_audit's env
+        # must turn this red. AUTO_PIN off = corepack never rewrites the
+        # caller's package.json; DOWNLOAD_PROMPT off = no hang waiting on a
+        # prompt nobody answers. The caller's environment must still reach
+        # pnpm (PATH, registry auth, proxies), so a sentinel rides along.
+        self.write_pkg({"packageManager": "pnpm@11.1.3"})
+        out = json.dumps(CLEAN_REPORT)
+        with mock.patch.dict(os.environ, {"OVERRIDE_STALENESS_SENTINEL": "kept"}), \
+                mock.patch("check_override_staleness.shutil.which", _which("corepack")), \
+                mock.patch("check_override_staleness.subprocess.run",
+                           return_value=_Proc(out)) as run:
+            # A host that already exports these (a dev Mac did) would let a
+            # deleted guard pass unnoticed, so the inherited env must lack them.
+            for inherited in ("COREPACK_ENABLE_AUTO_PIN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "CI"):
+                os.environ.pop(inherited, None)
+            run_audit(self.root)
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(env.get("COREPACK_ENABLE_AUTO_PIN"), "0")
+        self.assertEqual(env.get("COREPACK_ENABLE_DOWNLOAD_PROMPT"), "0")
+        self.assertEqual(env.get("CI"), "true")
+        self.assertEqual(env.get("OVERRIDE_STALENESS_SENTINEL"), "kept")
+
+    def test_nothing_runnable_is_a_clear_error_and_nothing_is_executed(self):
+        self.write_pkg({"packageManager": "pnpm@11.1.3"})
+        with mock.patch("check_override_staleness.shutil.which", _which()), \
+                mock.patch("check_override_staleness.subprocess.run") as run:
+            with self.assertRaises(RuntimeError) as ctx:
+                run_audit(self.root)
+        run.assert_not_called()
+        msg = str(ctx.exception)
+        self.assertIn("could not execute `pnpm audit`", msg)
+        self.assertIn("corepack", msg)
+        self.assertIn("pnpm@11.1.3", msg)
+
+    def test_an_exec_failure_keeps_the_existing_message(self):
+        self.write_pkg({"name": "x"})
+        boom = FileNotFoundError(2, "No such file or directory", "pnpm")
+        with mock.patch("check_override_staleness.shutil.which", _which("pnpm")), \
+                mock.patch("check_override_staleness.subprocess.run", side_effect=boom):
+            with self.assertRaises(RuntimeError) as ctx:
+                run_audit(self.root)
+        self.assertTrue(str(ctx.exception).startswith("could not execute `pnpm audit`: "))
+
+    def test_empty_and_invalid_output_still_fail(self):
+        self.write_pkg({"name": "x"})
+        for stdout, expected in (("", "produced no output"), ("not json", "not valid JSON")):
+            with self.subTest(stdout=stdout), \
+                    mock.patch("check_override_staleness.shutil.which", _which("pnpm")), \
+                    mock.patch("check_override_staleness.subprocess.run",
+                               return_value=_Proc(stdout, "boom")):
+                with self.assertRaises(RuntimeError) as ctx:
+                    run_audit(self.root)
+                self.assertIn(expected, str(ctx.exception))
+
+    def audit_with_stdout(self, stdout, returncode=1):
+        self.write_pkg({"name": "x"})
+        with mock.patch("check_override_staleness.shutil.which", _which("pnpm")), \
+                mock.patch("check_override_staleness.subprocess.run",
+                           return_value=_Proc(stdout, returncode=returncode)):
+            return run_audit(self.root)
+
+    def test_a_pnpm_error_result_is_a_failure_not_a_clean_audit(self):
+        # Fail-open guard: pnpm prints valid JSON when the audit endpoint fails.
+        # Read as a report, it has no advisories and the gate would say OK.
+        for err in (PNPM10_ERROR, PNPM11_ERROR):
+            with self.subTest(code=err["error"]["code"]):
+                with self.assertRaises(RuntimeError) as ctx:
+                    self.audit_with_stdout(json.dumps(err))
+                self.assertIn(err["error"]["code"], str(ctx.exception))
+                self.assertIn(err["error"]["message"][:20], str(ctx.exception))
+
+    def test_a_report_without_advisories_or_metadata_is_rejected(self):
+        for bad in ({"metadata": _METADATA},                       # no advisories
+                    {"advisories": {}},                            # no metadata
+                    {"advisories": [], "metadata": _METADATA},     # wrong type
+                    {"advisories": {}, "metadata": None},
+                    {}, [], [CLEAN_REPORT], "ok", 0, None):
+            with self.subTest(report=bad):
+                with self.assertRaises(RuntimeError) as ctx:
+                    self.audit_with_stdout(json.dumps(bad))
+                self.assertIn("not a pnpm audit report", str(ctx.exception))
+
+    def test_a_nonzero_exit_with_a_valid_report_is_accepted(self):
+        # pnpm exits 1 whenever it FINDS vulnerabilities: that is a real result.
+        report = dict(CLEAN_REPORT, advisories={"1": {"module_name": "fast-uri"}})
+        self.assertEqual(self.audit_with_stdout(json.dumps(report), returncode=1), report)
+        self.assertEqual(self.audit_with_stdout(json.dumps(CLEAN_REPORT), returncode=0),
+                         CLEAN_REPORT)
+
+    def test_main_exits_2_on_a_pnpm_error_result(self):
+        self.write_pkg({"name": "x"})
+        with open(os.path.join(self.root, "pnpm-lock.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("lockfileVersion: '9.0'\n")
+        with mock.patch("check_override_staleness.shutil.which", _which("pnpm")), \
+                mock.patch("check_override_staleness.subprocess.run",
+                           return_value=_Proc(json.dumps(PNPM11_ERROR))), \
+                mock.patch("sys.stdout"):
+            self.assertEqual(main(["check_override_staleness.py", self.root]), 2)
+
+    def test_subprocess_error_is_wrapped(self):
+        self.write_pkg({"name": "x"})
+        with mock.patch("check_override_staleness.shutil.which", _which("pnpm")), \
+                mock.patch("check_override_staleness.subprocess.run",
+                           side_effect=subprocess.SubprocessError("killed")):
+            with self.assertRaises(RuntimeError):
+                run_audit(self.root)
 
 
 if __name__ == "__main__":
