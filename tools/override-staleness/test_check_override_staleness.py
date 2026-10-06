@@ -328,6 +328,29 @@ class TestPnpmCommand(unittest.TestCase):
         self.assertEqual(env["COREPACK_ENABLE_DOWNLOAD_PROMPT"], "0")
         self.assertEqual(env["CI"], "true")
 
+    def test_audit_env_carries_the_corepack_guards_and_the_callers_environment(self):
+        # Each guard is pinned on its own: deleting either from run_audit's env
+        # must turn this red. AUTO_PIN off = corepack never rewrites the
+        # caller's package.json; DOWNLOAD_PROMPT off = no hang waiting on a
+        # prompt nobody answers. The caller's environment must still reach
+        # pnpm (PATH, registry auth, proxies), so a sentinel rides along.
+        self.write_pkg({"packageManager": "pnpm@11.1.3"})
+        out = json.dumps({"advisories": {}})
+        with mock.patch.dict(os.environ, {"OVERRIDE_STALENESS_SENTINEL": "kept"}), \
+                mock.patch("check_override_staleness.shutil.which", _which("corepack")), \
+                mock.patch("check_override_staleness.subprocess.run",
+                           return_value=_Proc(out)) as run:
+            # A host that already exports these (a dev Mac did) would let a
+            # deleted guard pass unnoticed, so the inherited env must lack them.
+            for inherited in ("COREPACK_ENABLE_AUTO_PIN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "CI"):
+                os.environ.pop(inherited, None)
+            run_audit(self.root)
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(env.get("COREPACK_ENABLE_AUTO_PIN"), "0")
+        self.assertEqual(env.get("COREPACK_ENABLE_DOWNLOAD_PROMPT"), "0")
+        self.assertEqual(env.get("CI"), "true")
+        self.assertEqual(env.get("OVERRIDE_STALENESS_SENTINEL"), "kept")
+
     def test_nothing_runnable_is_a_clear_error_and_nothing_is_executed(self):
         self.write_pkg({"packageManager": "pnpm@11.1.3"})
         with mock.patch("check_override_staleness.shutil.which", _which()), \
