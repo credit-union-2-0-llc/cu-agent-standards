@@ -41,6 +41,10 @@ way in the same file a few weeks on. Nobody had done anything wrong in between.
 
 1. `pnpm audit --json` — reads the **lockfile**, so there is no `pnpm install`
    and the whole job is a checkout plus one registry call.
+   pnpm is reached the way the wolf nightly reaches it: `corepack pnpm@<x.y.z>`
+   when `package.json` `packageManager` pins an exact pnpm and corepack is on
+   PATH, otherwise bare `pnpm`. A host with no global pnpm (the Spark nightly
+   runner) still works; with neither, the check exits 2 naming what is missing.
 2. Collects declared overrides from all three homes:
    `package.json` → `overrides`, `package.json` → `pnpm.overrides`,
    `pnpm-workspace.yaml` → `overrides:`.
