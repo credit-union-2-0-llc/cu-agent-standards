@@ -275,7 +275,9 @@ def real_cu2_key(text):
     """
     Distinguish a CU2 API key from an ordinary cu2_-prefixed identifier.
 
-    A key looks like `cu2_test_internal_kirk_2026`: long, many segments.
+    A key looks like `cu2_live_<segment>_<segment>_<random>`: long, many
+    segments. (Shape only. Never paste a real key into this public repo; keys
+    are personal: CU 2.0 staff mint their own at https://ops.cu-2.com/setup.)
     Database names, module names, and config prefixes (`cu2_billing_dev`,
     `cu2_agent_studio`) are short and two-segment. Without this the rule fired
     416 times on cu2-agent-studio, none of them a key.
