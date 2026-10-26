@@ -102,7 +102,7 @@ MUTATIONS = {
     "Bearer token in header":
         "Authorization: Bearer " + "c" * 30,
     "CU2 API key (cu2_...)":
-        "cu2_" + "test_internal_kirk_2026",
+        "cu2_" + "live_" + "fixture_" + "x" * 12 + "_synthetic",
     "Azure SAS token":
         "https://host/blob" + "?sv=" + "2021-08-06&x=1",
     "Credential-bearing connection string":

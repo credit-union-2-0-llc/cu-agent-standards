@@ -68,7 +68,7 @@ class TestRulesFire(unittest.TestCase):
         ("Google API key", "AIza" + "b" * 33),
         ("AWS access key", "AKIA" + "ABCDEFGHIJKLMNOP"),
         ("Bearer token", "Authorization: Bearer " + "c" * 30),
-        ("CU2 API key", "cu2_" + "test_internal_kirk_2026"),
+        ("CU2 API key", "cu2_" + "live_" + "fixture_" + "x" * 12 + "_synthetic"),
         ("Azure SAS token", "https://host/blob" + "?sv=" + "2021-08-06&x=1"),
         ("Credential-bearing connection string",
          "postgres" + "://svcuser:" + "s3cretpw99" + "@dbhost:5432/appdb"),
