@@ -13,6 +13,7 @@ Handles exactly what is needed and nothing else:
   * wildcard         *  x  (any version)
   * AND by space or comma   ">=3.0.0 <3.1.6"   ">= 3.0.0, < 3.1.6"
   * OR by ||                "^1.0.0 || ^2.0.0"
+  * the "no fix" sentinel   "<0.0.0"   (matches_no_version)
 
 Prerelease versions are compared by ignoring the prerelease tag, which is
 correct for the advisory ranges we see and wrong in general. That trade is
@@ -163,6 +164,40 @@ def satisfies(version_text, range_text):
         if clauses and all(_satisfies_comparator(version, c) for c in clauses):
             return True
     return False
+
+
+_BELOW_ZERO = re.compile(r"^<v?(\d+(?:\.\d+){0,2})$")
+
+
+def _is_below_zero(clause):
+    m = _BELOW_ZERO.match(clause)
+    return bool(m) and parse_version(m.group(1)) == (0, 0, 0)
+
+
+def matches_no_version(range_text):
+    """True only when NO version can satisfy the range: how an advisory says "no fix".
+
+    The npm audit endpoint that `pnpm audit` reads has no null for "nothing is
+    patched". It writes the unsatisfiable range '<0.0.0' instead (measured
+    2026-11-17, GHSA-fc5q-39xc-vjpf on picomatch: `"patched_versions": "<0.0.0"`,
+    while the GitHub API gives `first_patched_version: null` for the same
+    advisory). Recognised by structure, not string equality: every OR branch
+    must carry a strict '< 0.0.0' bound, so '< 0.0.0' and '<0' read the same.
+
+    Empty or None is NOT "no fix": a missing field means the advisory did not
+    say, and reading silence as "nothing can be done" would let a pin pass on
+    the strength of data that is not there. '<=0.0.0' admits 0.0.0, and a
+    prerelease bound such as '<0.0.0-0' is not recognised; both stay False.
+    """
+    if range_text is None:
+        return False
+    text = str(range_text).strip()
+    if not text:
+        return False
+    for or_branch in text.split("||"):
+        if not any(_is_below_zero(c) for c in _split_and(or_branch)):
+            return False
+    return True
 
 
 def min_patched(patched_range):
