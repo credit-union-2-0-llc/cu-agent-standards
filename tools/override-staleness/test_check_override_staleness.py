@@ -13,6 +13,8 @@ shapes. Where a case exists to stop a FALSE POSITIVE it says so, because a
 security gate that cries wolf gets switched off and then protects nothing.
 """
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -24,6 +26,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import semver_lite  # noqa: E402
 from semver_lite import (  # noqa: E402
     satisfies, min_patched, parse_version, is_exact_version,
 )
@@ -234,6 +237,101 @@ class TestEvaluate(unittest.TestCase):
 
     def test_no_advisories_holds_nothing(self):
         self.assertEqual(evaluate([], {"qs": [("6.16.0", "x")]}), ([], []))
+
+
+# GHSA-fc5q-39xc-vjpf exactly as `corepack pnpm@9.15.9 audit --json` emitted it
+# for ops-platform's lockfile on 2026-11-17 (long prose fields dropped). Its
+# `patched_versions` is npm's "no fix exists" sentinel, `<0.0.0`; the GitHub API
+# says `first_patched_version: null`. picomatch's newest release, 4.0.7, is in
+# the vulnerable range. Before this case was handled it turned every repo that
+# pins picomatch red with the advice "raise the pin", which no version satisfies.
+ADV_NO_FIX = {
+    "id": 1247710, "github_advisory_id": "GHSA-fc5q-39xc-vjpf",
+    "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+    "module_name": "picomatch", "severity": "high",
+    "vulnerable_versions": "<=4.0.7", "patched_versions": "<0.0.0",
+    "created": "2026-10-19T18:32:12.000Z", "updated": "2026-11-17T15:56:44.000Z",
+    "url": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+    "findings": [{"version": "4.0.4", "paths": []}, {"version": "2.3.2", "paths": []},
+                 {"version": "4.0.5", "paths": []}],
+}
+# ops-platform's real picomatch pins (package.json pnpm.overrides, 2026-11-17).
+OPS_PICOMATCH_PINS = {"picomatch@<2.3.2": "2.3.2", "picomatch@>=4.0.0 <4.0.4": "4.0.4"}
+
+
+class TestNoPatchedVersion(unittest.TestCase):
+    """An advisory with NO patched version must not fail the gate; one WITH a
+    patch above the pin must. Through main(), the entry point CI runs."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+        with open(os.path.join(self.root, "package.json"), "w", encoding="utf-8") as fh:
+            json.dump({"name": "x", "pnpm": {"overrides": OPS_PICOMATCH_PINS}}, fh)
+        with open(os.path.join(self.root, "pnpm-lock.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("lockfileVersion: '9.0'\n")
+
+    def run_main(self, *advisories):
+        report = dict(CLEAN_REPORT, advisories={str(i): a for i, a in enumerate(advisories)})
+        out = io.StringIO()
+        with mock.patch("check_override_staleness.shutil.which", _which("pnpm")), \
+                mock.patch("check_override_staleness.subprocess.run",
+                           return_value=_Proc(json.dumps(report))), \
+                contextlib.redirect_stdout(out):
+            code = main(["check_override_staleness.py", self.root])
+        return code, out.getvalue()
+
+    def test_no_fix_advisory_on_our_pins_warns_and_passes(self):
+        code, out = self.run_main(ADV_NO_FIX)
+        self.assertEqual(code, 0, out)
+        self.assertIn("::warning::picomatch: no fixed version exists for GHSA-fc5q-39xc-vjpf", out)
+        # Both pins are still named, so the warning says exactly what is exposed.
+        self.assertIn("pinned to  : 2.3.2   (key 'picomatch@<2.3.2'", out)
+        self.assertIn("pinned to  : 4.0.4   (key 'picomatch@>=4.0.0 <4.0.4'", out)
+        self.assertNotIn("::error::", out)
+
+    def test_same_advisory_with_a_patch_above_the_pin_still_fails(self):
+        # One mutation of the real advisory: a fix is published. The gate must go
+        # red on the same pins, which is how the no-fix pass re-arms itself.
+        code, out = self.run_main(dict(ADV_NO_FIX, patched_versions=">=4.0.8"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("::error::1 advisory/advisories are held open", out)
+        self.assertNotIn("::warning::", out)
+
+    def test_a_no_fix_advisory_does_not_mask_a_fixable_one_on_the_same_package(self):
+        fixable = dict(ADV_NO_FIX, id=1, github_advisory_id="GHSA-test-fixable",
+                       url="https://github.com/advisories/GHSA-test-fixable",
+                       vulnerable_versions="<4.0.6", patched_versions=">=4.0.6")
+        code, out = self.run_main(ADV_NO_FIX, fixable)
+        self.assertEqual(code, 1, out)
+        self.assertIn("::warning::picomatch: no fixed version exists", out)
+        self.assertIn("::error::1 advisory/advisories are held open", out)
+
+    def test_a_missing_patched_field_is_not_read_as_no_fix(self):
+        # Fail closed: silence about a fix is not evidence that none exists.
+        code, out = self.run_main(dict(ADV_NO_FIX, patched_versions=None))
+        self.assertEqual(code, 1, out)
+
+    def test_evaluate_keeps_its_two_tuple_contract(self):
+        # cu2-standards' override-pins wolf does `held, _upstream = evaluate(...)`.
+        # A no-fix advisory has no pin to raise, so it is not `held` there either.
+        pins = {k: [(v, "package.json pnpm.overrides")] for k, v in OPS_PICOMATCH_PINS.items()}
+        result = evaluate([ADV_NO_FIX], pins)
+        self.assertEqual(len(result), 2)
+        held, rest = result
+        self.assertEqual(held, [])
+        self.assertEqual([a["module_name"] for a in rest], ["picomatch"])
+
+    def test_matches_no_version(self):
+        mnv = semver_lite.matches_no_version
+        for text in ("<0.0.0", "< 0.0.0", "<0", "<0.0.0 || <0.0.0"):
+            with self.subTest(range=text):
+                self.assertTrue(mnv(text))
+        # A real fix, a range admitting 0.0.0, a branch with a fix, and silence.
+        for text in (">=4.0.8", "<=0.0.0", "<0.0.0 || >=4.0.8", "<0.0.1",
+                     "<0.0.0-0", "", "   ", None):
+            with self.subTest(range=text):
+                self.assertFalse(mnv(text))
 
 
 def _which(*present):

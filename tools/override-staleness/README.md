@@ -74,11 +74,37 @@ first would turn the package name into `""` and the gate would silently stop
 covering every scoped package — the same silent-coverage-loss class it exists to
 catch.
 
+## When no fix exists
+
+Some advisories have **no patched version**. `pnpm audit` writes that as
+`patched_versions: "<0.0.0"` (GitHub: `first_patched_version: null`). The first
+seen in the estate was GHSA-fc5q-39xc-vjpf on picomatch, 2026-11-17: vulnerable
+`<= 4.0.7`, and 4.0.7 was the newest release.
+
+An exact pin inside such a range is **reported, not failed**: a `::warning::`
+annotation naming the advisory and every pin it covers, and exit 0. The reasoning:
+
+- The gate fails a pin that *holds an advisory open* — one a different pin would
+  close. When no version is patched, no pin closes it. The advisory is open with
+  or without the pin.
+- The usual fix ("raise the pin") cannot be followed: every higher version is
+  vulnerable too. Deleting the pin is worse: it re-admits the older versions it
+  was added to keep out, which carry their own, *fixed*, advisories.
+- **It re-arms on its own.** The day a fix is published, the advisory's patched
+  range changes from `<0.0.0` to `>=x.y.z`, and the next run (callers run daily)
+  fails on the same pin with the normal fix advice. There is no waiver to expire
+  or remove.
+
+Only npm's explicit sentinel counts. A **missing** patched field is not read as
+"no fix": silence is not evidence, so an exact pin with no patched range still
+fails. An advisory that *does* have a patch above the pin fails exactly as before,
+including when a no-fix advisory sits on the same package.
+
 ## Exit codes
 
 | | |
 |---|---|
-| `0` | no override is holding an advisory open (or there is no `pnpm-lock.yaml`) |
+| `0` | no override is holding an advisory open (or there is no `pnpm-lock.yaml`). An advisory with no patched version that covers a pin is a `::warning::`, not a failure — see above |
 | `1` | one is — the output names the pin, its home, the advisory and the fix |
 | `2` | **the check could not run.** A check that did not run must never read as a check that passed, so this is loud rather than skipped |
 

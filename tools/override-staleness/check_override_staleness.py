@@ -26,8 +26,10 @@ switched-off gate is worth nothing.
 
 Usage:  python3 check_override_staleness.py [repo-root]
 
-Exit 0  no override is holding an advisory open.
-Exit 1  one is.
+Exit 0  no override is holding an advisory open. An advisory with NO patched
+        version that covers a pin is printed as a ::warning:: and does not fail:
+        no pin value can clear it (see classify).
+Exit 1  one is: a patched version exists and the pin does not reach it.
 Exit 2  the check could not run. A check that did not run must never read as a
         check that passed, so this is loud rather than skipped.
 """
@@ -40,7 +42,9 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from semver_lite import satisfies, min_patched, is_exact_version  # noqa: E402
+from semver_lite import (  # noqa: E402
+    satisfies, min_patched, is_exact_version, matches_no_version,
+)
 
 
 def split_override_key(raw_key):
@@ -159,9 +163,25 @@ def pin_is_dead(pin_value, vulnerable_range, patched_range):
     return not satisfies(floor, pin_value)
 
 
-def evaluate(advisories, overrides):
-    """Split advisories into ones our pins hold open and ones upstream owns."""
-    held, upstream = [], []
+def classify(advisories, overrides):
+    """Split advisories three ways: (held, no_fix, upstream).
+
+    held      our pin is inside the vulnerable range AND a patched version
+              exists, so a different pin would clear it. These fail the build.
+    no_fix    our pin is inside the vulnerable range but the advisory has NO
+              patched version (npm writes that as '<0.0.0'). No pin value can
+              clear it: raising the pin lands on another vulnerable version, and
+              removing the pin re-admits whatever older versions it was added to
+              keep out. A pin cannot be "holding open" an advisory that no
+              version closes, so these are reported, not failed. This re-arms on
+              its own: the day upstream publishes a fix, the advisory's patched
+              range changes and the same pin lands in `held` on the next run.
+    upstream  advisories on packages this repo does not pin (or pins clear of).
+
+    A MISSING patched range is not `no_fix`: silence is not evidence that
+    nothing can be done, so an exact pin with no patched field stays `held`.
+    """
+    held, no_fix, upstream = [], [], []
     for adv in advisories:
         name = adv.get("module_name")
         vulnerable = adv.get("vulnerable_versions")
@@ -174,11 +194,22 @@ def evaluate(advisories, overrides):
             for value, home in entries:
                 if pin_is_dead(value, vulnerable, patched):
                     matches.append({"key": raw_key, "pinned": value, "home": home})
-        if matches:
-            held.append({**adv, "pins": matches})
-        else:
+        if not matches:
             upstream.append(adv)
-    return held, upstream
+        elif matches_no_version(patched):
+            no_fix.append({**adv, "pins": matches})
+        else:
+            held.append({**adv, "pins": matches})
+    return held, no_fix, upstream
+
+
+def evaluate(advisories, overrides):
+    """(held, everything else). The two-tuple shape is a contract: the wolf in
+    cu2-standards (tools/wolf/wolves/override_pins.py) imports this function and
+    unpacks exactly two values, so a no-fix advisory goes in the second list —
+    there is no pin for the wolf to raise either."""
+    held, no_fix, upstream = classify(advisories, overrides)
+    return held, no_fix + upstream
 
 
 # package.json `packageManager` -> the exact pnpm version. The WHOLE value must
@@ -312,7 +343,7 @@ def main(argv):
 
     overrides = collect_overrides(root)
     advisories = list((audit.get("advisories") or {}).values())
-    held, upstream = evaluate(advisories, overrides)
+    held, no_fix, upstream = classify(advisories, overrides)
 
     print("Checked %d declared override key(s) against %d advisory/advisories."
           % (len(overrides), len(advisories)))
@@ -324,6 +355,33 @@ def main(argv):
             print("   %-9s %s (vulnerable %s, patched %s)" % (
                 adv.get("severity", "?"), adv.get("module_name"),
                 adv.get("vulnerable_versions"), adv.get("patched_versions")))
+
+    if no_fix:
+        print("\n%d advisory/advisories cover this repo's own override pins but "
+              "have NO patched version. No pin can clear these, so they do not "
+              "fail this gate:" % len(no_fix))
+        for adv in no_fix:
+            print("::warning::%s: no fixed version exists for %s (vulnerable %s). "
+                  "This repo's override pins are inside that range; nothing to "
+                  "raise them to yet. Not failing." % (
+                      adv.get("module_name"),
+                      adv.get("github_advisory_id") or adv.get("url") or adv.get("id"),
+                      adv.get("vulnerable_versions")))
+            print("   %s (%s)" % (adv.get("module_name"), adv.get("severity", "?")))
+            for pin in adv["pins"]:
+                print("     pinned to  : %s   (key '%s' in %s)"
+                      % (pin["pinned"], pin["key"], pin["home"]))
+            print("     vulnerable : %s" % adv.get("vulnerable_versions"))
+            print("     patched    : %s   (no fixed version published)"
+                  % adv.get("patched_versions"))
+            if adv.get("url"):
+                print("     advisory   : %s" % adv["url"])
+            print("")
+        print("   Do not delete these pins to quiet the warning: removing one does\n"
+              "   not clear the advisory, and re-admits the older versions it was\n"
+              "   added to keep out. This re-arms by itself: once a fix is\n"
+              "   published the patched range changes, and the next run (the\n"
+              "   caller's daily schedule) fails on the same pin.")
 
     if not held:
         print("\nOK — no override is holding an advisory open.")
