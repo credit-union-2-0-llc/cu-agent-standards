@@ -1,0 +1,285 @@
+<!doctype html>
+<!--
+  Template for docs/roadmap/<Product>-Roadmap-<YYYY-MM-DD>.html (product-roadmap skill, cu2-standards #433).
+  Mission Control renders it in a sandboxed frame with no scripts and a strict CSP: keep it self-contained.
+  No <script>, no external stylesheets, fonts or images. Links out are fine. Keep it under 2 MB.
+  Colors and type are the CU 2.0 Design System tokens (cu2-mcp std-design-system); every text pair meets WCAG AA.
+  Replace every {{...}}. Delete the sections marked "full tier" for an internal-tier product and leave the one-line note.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cu-agent-standards Roadmap</title>
+<style>
+:root{
+  /* CU 2.0 Design System tokens (cu2-mcp std-design-system; cu2-standards design-system/cu2/tokens). System font
+     stacks only: the Mission Control frame loads no external fonts, so Montserrat and Lato fall back when absent. */
+  --bg:#FAFAFA; --surface:#FFFFFF; --fg:#201747; --body-fg:oklch(42% 0.06 285); --muted:#595959; --line:#E5E5E5;
+  --brand:#F78D1E; --accent:oklch(50% 0.15 56); --accent-soft:oklch(96% 0.03 70);
+  --ok:oklch(45% 0.12 150); --ok-soft:oklch(95% 0.04 150); --warn:oklch(48% 0.12 70); --warn-soft:oklch(95% 0.05 85);
+  --stop:oklch(50% 0.19 27); --stop-soft:oklch(95% 0.04 27);
+  --display:Montserrat,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --body:Lato,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:oklch(17% 0.03 285); --surface:oklch(21% 0.035 285); --fg:#FFFFFF; --body-fg:oklch(88% 0.015 285); --muted:oklch(74% 0.015 285); --line:oklch(32% 0.03 285);
+  --accent:#F78D1E; --accent-soft:oklch(28% 0.05 56);
+  --ok:oklch(74% 0.14 150); --ok-soft:oklch(26% 0.04 150); --warn:#FDBE4F; --warn-soft:oklch(27% 0.05 70); --stop:oklch(72% 0.17 27); --stop-soft:oklch(27% 0.05 27); color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:oklch(17% 0.03 285); --surface:oklch(21% 0.035 285); --fg:#FFFFFF; --body-fg:oklch(88% 0.015 285); --muted:oklch(74% 0.015 285); --line:oklch(32% 0.03 285);
+  --accent:#F78D1E; --accent-soft:oklch(28% 0.05 56);
+  --ok:oklch(74% 0.14 150); --ok-soft:oklch(26% 0.04 150); --warn:#FDBE4F; --warn-soft:oklch(27% 0.05 70); --stop:oklch(72% 0.17 27); --stop-soft:oklch(27% 0.05 27); color-scheme:dark }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--body-fg);font:15px/1.65 var(--body);margin:0;border-top:4px solid var(--brand)}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 16px 64px;display:grid;gap:36px}
+h1,h2,h3{font-family:var(--display);font-weight:700;line-height:1.2;letter-spacing:-.02em;color:var(--fg);margin:0}
+h1{font-size:2.1rem} h2{font-size:1.45rem;margin-bottom:12px} h3{font-size:1.05rem;margin-bottom:6px}
+p{margin:0 0 10px;max-width:72ch} ul,ol{margin:0 0 10px;padding-left:1.2em}
+.eyebrow{font:500 .75rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.meta{display:flex;flex-wrap:wrap;gap:8px 18px;font:400 .82rem var(--mono);color:var(--muted)}
+section{display:grid;gap:12px}
+.scroller{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+thead th{font:600 .74rem var(--mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+tbody tr:last-child td{border-bottom:0}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.pill{display:inline-block;font:500 .72rem var(--mono);padding:1px 7px;border-radius:999px;white-space:nowrap;border:1px solid currentColor}
+.l3,.l4,.has{color:var(--ok);background:var(--ok-soft)} .l1,.l2,.partial{color:var(--accent);background:var(--accent-soft)}
+.l0,.no{color:var(--muted)} .unv,.est{color:var(--warn);background:var(--warn-soft)} .kill{color:var(--stop);background:var(--stop-soft)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.callout{border-left:3px solid var(--accent);background:var(--accent-soft);padding:14px 16px;border-radius:0 6px 6px 0}
+.src{font-size:.8rem;color:var(--muted)}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main class="wrap">
+
+<header>
+  <div class="eyebrow">cu-agent-standards · Product roadmap · tier internal · Product: Delivery tooling</div>
+  <h1>cu-agent-standards Roadmap</h1>
+  <div class="meta">
+    <span>2026-11-21</span><span>Repos: credit-union-2-0-llc/cu-agent-standards (public, MIT file)</span><span>Tier: internal (not sized, not sold)</span><span>Status: draft for review</span>
+    <span>Re-check by 2027-02-19</span><span>Issue: none yet (created at apply)</span>
+  </div>
+</header>
+
+<section id="summary"><h2>Summary</h2>
+  <div class="callout">
+  <p><strong>What:</strong> a public repo that CU2 calls "examiner-grade patterns for running a credit union on AI agents". Today it ships two offline Python gates (sanitize, theater), a third gate for pnpm overrides, six ranked principles, five agent archetypes, five worked skills and two security notes. CU2 itself runs the gates across its repos (level 4 under X1).</p>
+  <p><strong>Who for:</strong> CU2 engineering today: the gates run in CU2 repos. The audience its own spec states (credit union CEOs, CTOs and CUSOs) is a publication aim, not a recorded use. It is free, not sold, and internal tier (Product: Delivery tooling); funding the publication program is D1.</p>
+  <p><strong>Where it is:</strong> 17 features: 2 at level 4, 5 published (3), 5 tested (2), 4 not published (0), 1 unverified. The credit-union-specific content in the repo's own spec (workflow specs, R1-R5 standards, examiner-facing archetypes, landmines) is not published, and nothing in the repo maps to what an examiner expects.</p>
+  <p><strong>Active phase:</strong> P0 Make the front door true. No dates: the repo has no milestones and none was given.</p>
+  <p><strong>Decision that matters most:</strong> keep the "examiner-grade" claim and substantiate it, or reword it now (D2). NCUA's own page says it has issued no AI-specific rules.</p>
+  </div>
+</section>
+
+<section id="problem"><h2>Problem and positioning</h2>
+  <p>The job a credit union hires it for, in the buyer's words: "show me how to run AI agents without a control quietly lying to me, and give me something I can put in front of an examiner." The job its engineers hire it for: "stop a repo leaking internal context, and stop a CI check from passing when it did not run."</p>
+  <p><strong>For</strong> credit union and CUSO technology and risk leads <strong>who</strong> must run AI agents under exam scrutiny, cu-agent-standards <strong>is an</strong> open pattern library with runnable gates <strong>that</strong> turns each lesson into a check that fails first and a ledger that admits its own mistakes. <strong>Unlike</strong> governance frameworks and platforms, <strong>we</strong> publish working code and incident-derived patterns, not policy templates or a platform. (Competitors were not sized: internal tier.)</p>
+  <p class="src">Honest gap: the "unlike" holds for the gates and the ledger. It does not yet hold for credit-union regulatory content, which is the part the tagline promises (section 6, section 13).</p>
+  <p class="src">Relationships. <strong>cu2-standards:</strong> CU2's internal standards (served by cu2-mcp); its spec <code>docs/cu-agent-standards-SPEC.md</code> (v1.0.0, 2026-07-28) is this repo's plan of record and is carried forward in P2 to P4. The gates moved out of cu2-standards into this repo (cu2-standards <code>tools/theater-README.md</code>). <strong>Marshal:</strong> not a Marshal component (X4 does not apply). Marshal's examiner-evidence use case (UC7 in the Marshal roadmap) could cite these patterns as public method; today nothing in this repo is examiner evidence, so that link is a decision (D6), not a fact.</p>
+</section>
+
+<section id="internal-tier"><h2>Market, competitors, features, adoption path, ICP, pricing, go-to-market and moat</h2>
+  <p>Internal tier, not sized. These are CU2's own CI gates and content, used in CU2 repos (level 4 under X1), not sold and with no external user recorded (0 stars, 0 forks, 0 views in the 14 days to 2026-11-20, GitHub API, 2026-11-21). The publication program (spec P1 to P5, carried as P2 to P4) is a marketing aim; whether to fund it, with an adoption target, is D1. If D1 says yes, the full tier is re-run through /roadmap-refresh, and the market, competitor and ICP work from the draft is rebuilt then. The one competitive fact kept: NCUA's AI resources page (updated 11/18/26) says NCUA has issued no AI-specific rules, so no claim here may say a rule requires or an examiner accepts a pattern without a citation (RK-1).</p>
+</section>
+
+
+
+<section id="maturity"><h2>Feature maturity vs live capability</h2>
+  <p class="src">Levels: 0 idea · 1 built · 2 tested · 3 deployed · 4 customer-used · unverified. For content, "3" means published on the public main branch and linted in CI; no external review is recorded for any content row, so none is called reviewed. Level 4 uses Kirk's decision X1 (CU2's own use counts). "Deployed" for a gate means the reusable workflow or script on main; there is no service and no /health or /version (internal-tool rule X2 does not apply).</p>
+  <p class="src">Main at 62142e4 (2026-11-18): CI and Scheduled runs green (<a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/actions">Actions</a>, read 2026-11-21). Adopter counts conflict across the repo's own documents: 92 repos swept (README), 86 adopting (ci.yml comment, 2026-08-04), 79 fetching (cu2-standards doc). An org code search in the Opus review (gh, 2026-11-21) found 95 caller workflow files in 86 repos: 86 call <code>reusable-theater.yml</code>, 5 <code>reusable-override-staleness.yml</code> and 4 <code>reusable-sanitize.yml</code>; 93 of the 95 use <code>@main</code>, and only dev-studio pins a SHA (0c68edf, 2026-09-08). Code search can miss files, so 86 is a floor, not a dated adopter list.</p>
+  <div class="scroller"><table>
+    <thead><tr><th>Feature</th><th>Level</th><th>Evidence</th><th>Gap to next level</th><th>Closed in</th></tr></thead>
+    <tbody>
+    <tr><td>1. sanitize gate (secret, pii, internal tiers; public profile)</td><td><span class="pill l4">4 customer-used (X1)</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/11">PR #11</a> · <a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/18">#18</a> · test suites in CI · allowlists referencing it in broflo, cu2-shared-lib, cu2-action-gateway-lint (code search 2026-11-21)</td><td>Use recorded per repo, not inferred from allowlist files; an external user</td><td>P4</td></tr>
+    <tr><td>2. theater gate T1-T12 plus ratchet</td><td><span class="pill l4">4 customer-used (X1)</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/3">PR #3</a> · <a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/19">#19</a> · SUPPRESSIONS.md in resistance-wine, kirk-helper, misty-9000, mcdrake-print and others; pre-push hooks in two repos (code search 2026-11-21)</td><td>An exact adopter count (three conflicting figures); an external adopter</td><td>P1, P4</td></tr>
+    <tr><td>3. workflow_health (T7/T9, GitHub Actions API)</td><td><span class="pill l2">2 tested</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/6">PR #6</a> · CI green. Run locally without PyYAML, 3 of 58 tests fail and 1 errors (<code>test_workflow_health.py</code>)</td><td>Adoption record; the PyYAML requirement is stated in tools/theater/README.md line 10 but the front page says "no dependencies"</td><td>P0</td></tr>
+    <tr><td>4. override-staleness gate (pnpm overrides)</td><td><span class="pill l2">2 tested</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/26">PR #26</a> · <a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/30">#30</a> · CI green</td><td>Any caller of <code>reusable-override-staleness.yml</code> not found</td><td>P4</td></tr>
+    <tr><td>5. orphan_tests detector</td><td><span class="pill l2">2 tested</span></td><td>tools/theater/test_orphan_tests.py in CI</td><td>Adoption not found</td><td>P4</td></tr>
+    <tr><td>6. Fixture-mutation harnesses (both gates)</td><td><span class="pill l2">2 tested</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/17">PR #17</a> · <a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/19">#19</a></td><td>Used by a contributor other than the maintainer</td><td>P4</td></tr>
+    <tr><td>7. Schema lint and measured-claims lint (format_lint, ledger count)</td><td><span class="pill l2">2 tested</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/14">PR #14</a> · <a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/15">#15</a></td><td>Covers prose counts only where a test exists; estate figures (774, 92) have no check</td><td>P0</td></tr>
+    <tr><td>8. Six ranked principles</td><td><span class="pill l3">3 published</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/12">PR #12</a> · principles/PRINCIPLES.md</td><td>No recorded review; no adopter</td><td>P3</td></tr>
+    <tr><td>9. Agent archetypes (5)</td><td><span class="pill l3">3 published</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/25">PR #25</a> · agents/archetypes/. These are not the six the spec says should lead.</td><td>The six credit-union archetypes; a review</td><td>P3</td></tr>
+    <tr><td>10. Skills, worked examples (5)</td><td><span class="pill l3">3 published</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/13">PR #13</a> · skills/examples/</td><td>A review; use by someone outside CU2</td><td>P3</td></tr>
+    <tr><td>11. Security reference notes (2)</td><td><span class="pill l3">3 published</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/22">PR #22</a> · security/</td><td>Hugh's review recorded</td><td>P3</td></tr>
+    <tr><td>12. llms.txt, CONTRIBUTING, CHANGELOG, SECURITY</td><td><span class="pill l3">3 published</span></td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/pull/20">PR #20</a>. The spec's agent-support.yaml, pickup prompts and PUBLICATION_CHECKLIST.md do not exist (checked 2026-11-21).</td><td>The three missing spec items</td><td>P2</td></tr>
+    <tr><td>13. 36 credit-union workflow specs (spec P1)</td><td><span class="pill l0">0 idea</span></td><td>cu2-standards <code>docs/cu-agent-standards-SPEC.md</code> §4; nothing in this repo</td><td>Sanitize, named-actor scrub, Hugh review, publish</td><td>P2</td></tr>
+    <tr><td>14. R1-R5, QA, versioning standards, gate protocol (spec P2)</td><td><span class="pill l0">0 idea</span></td><td>Same spec §4. The spec warns the G0-G5 text is stale and must not be published as written.</td><td>Rewrite against the current model, then publish</td><td>P2</td></tr>
+    <tr><td>15. Six credit-union archetypes (examiner auditor, GRC, lending SME, auditor, accountant, FinOps)</td><td><span class="pill l0">0 idea</span></td><td>Same spec §4 (P4)</td><td>Editorial work, then Hugh review for the first two</td><td>P3</td></tr>
+    <tr><td>16. Landmines and knowledge entries (spec P5)</td><td><span class="pill l0">0 idea</span></td><td>Same spec §4 (P5); opt-in per entry</td><td>Schema, then entries one by one</td><td>P4</td></tr>
+    <tr><td>17. "Examiner-grade" claim</td><td><span class="pill unv">unverified</span></td><td>README line 3 and the GitHub description make the claim. No file in the repo mentions NCUA, UDAAP, ECOA or an examiner outside the README (grep, 2026-11-21).</td><td>A mapping table to NCUA's resource page and NIST, reviewed by Hugh; or a reworded claim</td><td>P0, P2</td></tr>
+    </tbody>
+  </table></div>
+  <p>Count: level 4: 2 · level 3: 5 · level 2: 5 · level 1: 0 · level 0: 4 · unverified: 1 (17 features).</p>
+</section>
+
+
+
+<section id="use-cases"><h2>Use cases</h2>
+  <div class="scroller"><table>
+    <thead><tr><th>Use case</th><th>Actor</th><th>Outcome that proves value</th><th>Audience</th><th>Phase</th></tr></thead>
+    <tbody>
+    <tr><td>UC1 Switch on the theater ratchet in a repo</td><td>Developer</td><td>Only theater a change adds fails the build; backlog does not</td><td>CUSO or fintech engineer</td><td>P1</td></tr>
+    <tr><td>UC2 Check a repo before publishing it</td><td>Maintainer</td><td>Sanitize public profile is clean and a human has reviewed the named actors</td><td>CUSO or fintech engineer</td><td>P2</td></tr>
+    <tr><td>UC3 Pin a gate version</td><td>Platform engineer</td><td>A consumer pins a tag and a bad push to main cannot reach its CI</td><td>CUSO or fintech engineer</td><td>P1</td></tr>
+    <tr><td>UC4 Hand the repo to your own agent</td><td>CTO and their agent</td><td>The agent answers "should we build a version?" without claiming what the repo does not do</td><td>Credit union CISO or CTO</td><td>P2</td></tr>
+    <tr><td>UC5 Map an agent workflow to the regulation</td><td>Compliance officer</td><td>The workflow spec cites the rule and names the human approval step</td><td>Credit union compliance officer</td><td>P2</td></tr>
+    <tr><td>UC6 Answer "how are agent changes approved and verified?"</td><td>CISO</td><td>Principles, gates and ledger give a documented answer; evidence beyond the repo comes from Marshal, not here</td><td>Credit union CISO or CTO</td><td>P3, P4</td></tr>
+    <tr><td>UC7 Propose a detector or archetype</td><td>Contributor</td><td>A PR with a failing-first regression test merges</td><td>CUSO or fintech engineer</td><td>P4</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Success and eval criteria</h3>
+  <div class="scroller"><table>
+    <thead><tr><th>UC</th><th>Success criterion: metric, target, how measured</th><th>Eval criterion (AI step)</th></tr></thead>
+    <tbody>
+    <tr><td>UC1</td><td>Gate enabled on N consumer repos with zero backlog failures; N and the baseline come from the adopter record built in P1. Measured from workflow runs. Target set by Kirk; none invented.</td><td>None: no model.</td></tr>
+    <tr><td>UC2</td><td>Zero sanitize findings at <code>--profile public</code> and a recorded human review per published file. Measured in the PR. The fixture-mutation harness shows each rule rejecting its bad fixture.</td><td>None: no model.</td></tr>
+    <tr><td>UC3</td><td>Share of consumer workflows pinned to a tag or SHA, from a workflow search. Target: Kirk's decision D4; baseline from the same search.</td><td>None.</td></tr>
+    <tr><td>UC4</td><td>An external agent given the repo and the llms.txt says what the repo does and does not do. Measured by a checker's pass/fail per claim.</td><td>Judged: no claim beyond the repo's text (no "NCUA-approved", no "examiner-ready"). Eval set: synthetic prompts calibrated per skills-standard.md §4, size set by Hugh. Pass bar set by Hugh.</td></tr>
+    <tr><td>UC5</td><td>Each workflow spec has a citation checked against the rule text by a compliance reviewer; defects found per spec, counted in review. Target set by Hugh.</td><td>None for the text. If a model drafts, the draft's citations are judged against the primary source; pass bar set by Hugh.</td></tr>
+    <tr><td>UC6</td><td>A CISO reader can answer three mock exam questions from the repo plus Marshal's evidence pack. Timed on 3 questions; the Marshal UC7 mock set is the model (see Marshal roadmap).</td><td>None here.</td></tr>
+    <tr><td>UC7</td><td>Median days from PR open to merge for a contribution with a regression test; no baseline (0 external PRs).</td><td>None.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+
+
+
+<section id="regulatory"><h2>Regulatory and risk surface</h2>
+  <ul>
+    <li><strong>Claims to examiners and regulators (accuracy).</strong> NCUA's AI resource page (updated 11/18/26) says NCUA has issued no AI-specific rules and that existing, technology-neutral rules apply. Nothing in this repo may say a rule requires, or an examiner accepts, a pattern unless a citation backs it. "Examiner-grade" is a claim of that kind and has no mapping behind it today (RK-1).</li>
+    <li><strong>UDAAP, ECOA and Reg B, FCRA, BSA.</strong> P2 would publish workflow specs for adverse action, fair lending and BSA/AML. The repo holds no member data; the risk is a wrong citation or a stale one being read as guidance (RK-4). Which consumer-protection rules bind CU2 as a publisher, as opposed to the credit unions that use the text, is a question for Hugh and counsel; I did not decide it.</li>
+    <li><strong>Marketing accuracy.</strong> Counts and claims in the README are published statements. The ledger count is CI-checked; the estate figures (774 candidates, 92 repos) are not and cannot be reproduced from the repo (README says so).</li>
+    <li><strong>Licensing.</strong> The LICENSE file is MIT with an MIT notice for adapted third-party code. GitHub's API reports the licence as "Other" (NOASSERTION). The spec calls for MIT for code and CC-BY-4.0 for prose; the repo is MIT only. See RK-3.</li>
+    <li><strong>Stale guidance.</strong> NIST says the AI RMF is being revised; the NCUA page changed on 11/18/26; the GAO (May 2025, second-hand from search) said NCUA's model risk guidance is limited for AI. Every dated reference needs a re-check date (RK-4).</li>
+    <li><strong>Member data:</strong> none held; the repo's own sanitize gate keeps it out. ADR-031 checklist: not applicable. <strong>Sub-processors:</strong> GitHub only (<code>subprocessors.yml</code> id <code>github</code>, cu2-standards origin/main, read 2026-11-21); the npm registry call in hop 4 has no row (low, no member data).</li>
+  </ul>
+</section>
+
+<section id="data-flow"><h2>Data flow</h2>
+  <p>Minimal. The repo is content and offline tools: no service, no database, no tenant data, no model. Read from the code and workflows on main at 62142e4.</p>
+  <figure>
+  <svg viewBox="0 0 720 250" role="img" aria-label="Data flow: consumer CI and maintainers around the public repository" style="width:100%;height:auto;max-width:720px">
+    <style>.b{fill:var(--surface);stroke:var(--line);stroke-width:1.5}.t{fill:var(--fg);font:13px var(--body)}.s{fill:var(--muted);font:11px var(--mono)}.a{stroke:var(--accent);stroke-width:1.6;fill:none}.d{stroke:var(--stop);stroke-width:1.4;stroke-dasharray:5 4;fill:none}</style>
+    <rect class="b" x="260" y="90" width="200" height="70" rx="8"/><text class="t" x="360" y="120" text-anchor="middle">cu-agent-standards</text><text class="s" x="360" y="140" text-anchor="middle">public GitHub repo, main</text>
+    <rect class="b" x="20" y="20" width="190" height="60" rx="8"/><text class="t" x="115" y="48" text-anchor="middle">Maintainer (1)</text><text class="s" x="115" y="66" text-anchor="middle">sanitize --profile public</text>
+    <rect class="b" x="510" y="20" width="190" height="60" rx="8"/><text class="t" x="605" y="48" text-anchor="middle">Consumer CI and hooks</text><text class="s" x="605" y="66" text-anchor="middle">fetch detector at main (2)</text>
+    <rect class="b" x="510" y="170" width="190" height="60" rx="8"/><text class="t" x="605" y="198" text-anchor="middle">Consumer runner (3)</text><text class="s" x="605" y="216" text-anchor="middle">scans its own tree, offline</text>
+    <rect class="b" x="20" y="170" width="190" height="60" rx="8"/><text class="t" x="115" y="198" text-anchor="middle">GitHub API / npm (4, 5)</text><text class="s" x="115" y="216" text-anchor="middle">run metadata; dependency list</text>
+    <rect class="b" x="260" y="190" width="200" height="45" rx="8"/><text class="t" x="360" y="218" text-anchor="middle">Outside agents and readers (6)</text>
+    <path class="a" d="M210 50 L300 90"/><path class="a" d="M510 50 L420 90"/><path class="a" d="M605 80 L605 170"/><path class="a" d="M210 200 L510 200" stroke-dasharray="2 3"/><path class="a" d="M360 160 L360 190"/>
+    <rect x="240" y="75" width="240" height="100" rx="10" class="d" style="fill:none"/><text class="s" x="244" y="70">public side: no member data by design</text>
+  </svg>
+  <figcaption class="src">Everything left of or inside the dashed box is public content. No arrow carries member PII, NPI or client financial data.</figcaption>
+  </figure>
+  <div class="scroller"><table>
+    <thead><tr><th>From</th><th>To</th><th>Data class</th><th>Transport</th><th>At rest</th><th>Boundary</th><th>Sub-processor</th><th>Retention</th><th>Evidence</th></tr></thead>
+    <tbody>
+    <tr><td>1 Maintainer</td><td>Public GitHub repo</td><td>Internal context becoming public; gate checks for secrets, PII, internal names</td><td>HTTPS (GitHub)</td><td>GitHub, public</td><td>Crosses out of CU2 by design</td><td><code>github</code> row</td><td>Permanent, in git history</td><td>CONTRIBUTING.md (sanitize before publishing); tools/sanitize/README.md lines 1-15. A clean scan is a precondition for human review, not a substitute (spec §6).</td></tr>
+    <tr><td>2 Consumer CI / pre-commit</td><td>This repo at <code>main</code> (sparse checkout of tools/)</td><td>Code in; no consumer data out</td><td>HTTPS (GitHub)</td><td>Runner disk, job lifetime</td><td>Consumer fetches public code; stays inside consumer after</td><td><code>github</code> row</td><td>Actions log retention (org setting, not read)</td><td>.github/workflows/reusable-theater.yml:70-74 (ref falls back to <code>main</code>); same in reusable-sanitize.yml:83. Pre-commit hook rev is also <code>main</code> (cu2-standards tools/theater-README.md)</td></tr>
+    <tr><td>3 Runner</td><td>Scanner on the consumer's own files</td><td>Consumer source code, may contain secrets or PII; the scanner prints file, line and rule</td><td>Local process only; the only subprocess is <code>git</code></td><td>Not stored by the tool</td><td>Inside the consumer's runner</td><td>none</td><td>Job log</td><td>theater_scan.py:831,908,947 and cu2_sanitize_scan.py:782 (git only); no network import found in either file, grep 2026-11-21</td></tr>
+    <tr><td>4 workflow_health</td><td>GitHub Actions API via <code>gh api</code></td><td>Workflow run metadata (names, conclusions, dates)</td><td>HTTPS (GitHub)</td><td>Not stored</td><td>Inside the consumer org</td><td><code>github</code> row</td><td>none</td><td>workflow_health.py:645-655. Which token <code>gh</code> uses in CI is <strong>unverified</strong>; standards require an App or GITHUB_TOKEN, never a CLI login token.</td></tr>
+    <tr><td>5 override-staleness</td><td>npm registry via <code>pnpm audit</code></td><td>Dependency names and versions from the lockfile</td><td>HTTPS (pnpm)</td><td>Not stored</td><td>Leaves consumer to a public registry</td><td>No <code>subprocessors.yml</code> row (<strong>unverified</strong> whether one is needed)</td><td>none</td><td>check_override_staleness.py:279. Payload read from code; the registry endpoint pnpm contacts is unverified.</td></tr>
+    <tr><td>6 Outside agents and readers</td><td>Repo text via llms.txt</td><td>Public text</td><td>HTTPS</td><td>Third party's own</td><td>Public</td><td>Not CU2's choice</td><td>n/a</td><td>llms.txt. What an outside agent may claim is not controlled; the spec's agent-support.yaml (what not to claim) does not exist.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="src">LLM and embedding calls: none. Gateway: not applicable. PII gate: not applicable (no call exists; checked by grep 2026-11-21). Findings: hop 2 goes to RK-2 (high); hop 1 goes to RK-5 (high); hop 6 goes to RK-1. 6 hops; 3 unverified cells (hop 2 retention, hop 4 token, hop 5 sub-processor).</p>
+</section>
+
+<section id="dependencies"><h2>Dependencies and build / buy / partner</h2>
+  <ul>
+    <li><strong>cu2-standards:</strong> source of P2 content (workflows, R1-R5, QA, versioning) and the spec. Tracked in cu2-standards <code>docs/cu-agent-standards-SPEC.md</code>; a cu2-standards issue is for that repo's owner. Routed, not worked here.</li>
+    <li><strong>cu2-mcp knowledge:</strong> source of P4 landmine candidates (spec P5). cu2-mcp was disconnected during this draft, so no knowledge was read.</li>
+    <li><strong>Marshal:</strong> a possible evidence link (D6) with the Marshal roadmap's UC7 and the Marshal #454-#459 epics. A link only.</li>
+    <li><strong>cu2-standards template and Wolf:</strong> pinning consumers goes through the cu2-standards <code>theater.yml</code> template and Wolf's <code>repo-contract</code> (<code>theater-gate</code>); routed to cu2-standards, a link only. Not 86 consumer PRs.</li>
+    <li><strong>Hugh Smallwood (<code>hughmsmall</code>):</strong> reviewer for regulatory content (P2, P3). Counts as a reviewer only with a recorded review.</li>
+    <li><strong>Counsel (CU2's own):</strong> licence and the publisher question in section 13. Not named in the repo.</li>
+    <li><strong>Build / buy / partner:</strong> build the content (it is the product); partner with a league or CUSO for the first external reader. Buying a platform is Marshal's question, not this repo's.</li>
+    <li><strong>Org Product field:</strong> Delivery tooling (an existing org option, Opus review of 2026-11-21). D7 is closed.</li>
+  </ul>
+</section>
+
+<section id="phases"><h2>Phases</h2>
+  <p class="src">The repo has no milestones (checked 2026-11-21). Its plan of record is the cu2-standards spec; P2 to P4 carry the spec's P1 to P5 forward and merge them into three deliverable groups. P0 and P1 are new. The published history (CHANGELOG.md) is not replaced.</p>
+  <div class="scroller"><table>
+    <thead><tr><th>Phase</th><th>Goal</th><th>Due</th><th>Done when</th><th>Kill or pivot if</th><th>Metric</th><th>Risk</th><th>Epic</th></tr></thead>
+    <tbody>
+    <tr><td>P0 Make the front door true</td><td>Every claim on the front page is true or removed; the licence is clear; main is protected.</td><td>needs a date</td><td>Tagline decided (D2); each README claim has a source or is removed; licence detected by GitHub; PyYAML requirement stated; review confirmed on the classic protection of main and CODEOWNERS added; issue #7 triaged.</td><td>Hugh or counsel says the repo must come down while claims are fixed.</td><td>Unsupported claims on the front page: 0 (checked by a reviewer against a claims table)</td><td>R3 (access to a public repo that shared CI fetches; claims to regulators)</td><td>to create</td></tr>
+    <tr><td>P1 Version the gates so adopters can pin</td><td>A bad push to main can no longer reach every consumer's CI.</td><td>needs a date</td><td>A tagged release with notes; <code>standards-ref</code> documented; an adopter list built from a workflow search (95 caller workflows in 86 repos on 2026-11-21, 93 at <code>@main</code>); the pin goes into the cu2-standards <code>theater.yml</code> template, which Wolf's <code>repo-contract</code> rule <code>theater-gate</code> already installs verbatim, so one template change plus a Wolf sweep moves the callers (the wolf keeps its person-reviewed merge path; no per-consumer PRs); dev-studio's stale SHA pin (0c68edf, 2026-09-08) is the first case; a decision on changing the default ref (D4).</td><td>Consumers cannot pin without breaking their gates.</td><td>Consumer workflows pinned to a tag or SHA, from a search (baseline first)</td><td>R5 (shared CI across tenants; Kirk and Hugh both approve; Hugh verbal approval only by the CLAUDE.md procedure)</td><td>to create</td></tr>
+    <tr><td>P2 Publish the credit-union core</td><td>The first credit-union-specific content, cited and reviewed, plus the pickup route.</td><td>needs a date</td><td>Workflow specs (spec P1) and the rewritten R1-R5 and QA standards (spec P2) published; each scans clean at <code>--profile public</code>, has a human named-actor scrub and Hugh's recorded review; agent-support.yaml, pickup prompts and PUBLICATION_CHECKLIST.md exist; an examiner-resource mapping table exists.</td><td>Hugh finds citations cannot be kept current.</td><td>Defects found per spec in compliance review; target set by Hugh</td><td>R3 (public statements on lending, adverse action, UDAAP, ECOA; no member data). R4 if Hugh rules it affects a regulated path.</td><td>to create</td></tr>
+    <tr><td>P3 Thesis, credit-union archetypes and patterns</td><td>A thesis a CU leader reads, and the six credit-union archetypes.</td><td>needs a date</td><td>Thesis essay published (spec decision 4); the six archetypes and the incident-derived patterns (spec P3, P4) published after sanitize and review.</td><td>The essay cannot be written without internal detail that cannot be published.</td><td>Review pass per file; external readers recorded</td><td>R3 (examiner and lending role prompts make public claims)</td><td>to create</td></tr>
+    <tr><td>P4 Landmines and external proof</td><td>The differentiator, and one outside adopter.</td><td>needs a date</td><td>Landmine schema and the first entries, each opt-in and reviewed (spec P5); one external adopter recorded; the Marshal link (D6) decided; community contributions decided (spec decision 3).</td><td>Landmine entries cannot be sanitized.</td><td>External adopters recorded: baseline 0; target Kirk's</td><td>R3 (incident detail; client and member identifiers must stay out)</td><td>to create</td></tr>
+    </tbody>
+  </table></div>
+  <p class="src">Eval strategy and Co-work QA test plan per phase are in each epic issue. Content phases have no staging URL; "environment" means the PR preview and a clean clone.</p>
+</section>
+
+<section id="risks"><h2>Risk register, assumptions and open decisions</h2>
+  <div class="scroller"><table>
+    <thead><tr><th>ID</th><th>Risk</th><th>Category</th><th>Likelihood</th><th>Impact</th><th>Owner</th><th>Mitigation</th><th>Tracked in</th><th>Status</th><th>Review</th></tr></thead>
+    <tbody>
+    <tr><td>RK-1</td><td>"Examiner-grade" is claimed in the README and repo description with no mapping to examiner expectations; NCUA states it has issued no AI-specific rules</td><td>compliance</td><td>high</td><td>high</td><td>Hugh Smallwood (<code>hughmsmall</code>)</td><td>Reword now or substantiate with a reviewed mapping (D2; P0, P2)</td><td>NEW at apply</td><td>open</td><td>2026-12-05</td></tr>
+    <tr><td>RK-2</td><td>Shared CI and pre-commit hooks in many repos fetch detector code from <code>main</code> of a public repo: 93 of 95 caller workflows in at least 86 repos (org code search, 2026-11-21). Main has classic branch protection with four required checks, enforced for everyone (branches API <code>protection.enabled: true</code>). Whether it requires a review can't be read without admin. There are no rulesets and no CODEOWNERS (both 404, 2026-11-21). One merged change that passes the self-tests runs in every consumer's CI, and the reusable workflows set no <code>permissions:</code> block, so they run with each caller's default token</td><td>security</td><td>medium</td><td>high</td><td>Kirk Drake</td><td>Act now (a person, Kirk): confirm "require a pull request review" on the classic protection with no bypass for the write accounts, and add CODEOWNERS (Kirk and Dylan) for <code>.github/workflows/</code> and <code>tools/</code>. Then an R5 PR (Kirk and Hugh) adding <code>permissions: contents: read</code> at job level to the three reusable workflows. Then pins through the cu2-standards <code>theater.yml</code> template (P1). A ruleset is optional</td><td>NEW at apply</td><td>open</td><td>2026-12-05</td></tr>
+    <tr><td>RK-3</td><td>Licence unclear: GitHub reports "Other"; the spec's MIT plus CC-BY-4.0 split is not in the repo; adapted third-party code carries its own notice</td><td>compliance</td><td>medium</td><td>medium</td><td>Kirk Drake</td><td>Decide D3; fix LICENSE so it is machine-detected; counsel check</td><td>NEW at apply (medium impact)</td><td>open</td><td>2027-01-16</td></tr>
+    <tr><td>RK-4</td><td>Stale guidance: regulatory citations, NCUA page, NIST revision, README counts. Three conflicting adopter counts already (92, 86, 79)</td><td>compliance</td><td>high</td><td>medium</td><td>Product manager role</td><td>Dated sources and a re-check date on every reference; prose counts asserted in CI where reproducible (the ledger count already is)</td><td>NEW at apply (medium impact)</td><td>open</td><td>2027-02-19</td></tr>
+    <tr><td>RK-5</td><td>Publishing P2 to P3 leaks a named actor, staff email, tenant name or deal term that no regex finds (spec §6: Kirk appears as a named actor in at least ten workflow files; 45 staff emails in cu2-standards)</td><td>security</td><td>medium</td><td>high</td><td>Hugh Smallwood and Kirk Drake</td><td>Sanitize public profile, gitleaks on full history, human scrub, recorded review per file</td><td>NEW at apply</td><td>open</td><td>2026-12-19</td></tr>
+    <tr><td>RK-6</td><td>A regulatory workflow spec is wrong or becomes wrong and is read as guidance (adverse action, UDAAP, BSA)</td><td>compliance</td><td>medium</td><td>high</td><td>Hugh Smallwood</td><td>Citation to primary text, reviewer sign-off, visible "as of" date and "not legal advice" line; decide who counts as the compliance reviewer</td><td>NEW at apply</td><td>open</td><td>2026-12-19</td></tr>
+    <tr><td>RK-7</td><td>A detector false clean or sanitize false negative ships (the ledger records 22 prior errors; 4 of the T10 ones were false cleans)</td><td>security</td><td>medium</td><td>medium</td><td>Maintainer</td><td>Fixture-mutation harness and ledger discipline; SECURITY.md channel. The automated sweep issue <a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/issues/7">#7</a> (1 critical, 2 high, filed 2026-08-02) has had no triage in 111 days; one of its findings reasons itself out</td><td><a href="https://github.com/credit-union-2-0-llc/cu-agent-standards/issues/7">#7</a></td><td>open</td><td>2027-01-16</td></tr>
+    <tr><td>RK-8</td><td>No external traction and no thesis essay; the repo is a toolbox without a story (spec decision 4)</td><td>market</td><td>high</td><td>medium</td><td>Kirk Drake</td><td>P3 essay; P4 first adopter; decide whether this matters (D1)</td><td>NEW at apply (medium impact)</td><td>open</td><td>2027-02-19</td></tr>
+    <tr><td>RK-9</td><td>Single maintainer for tools that many repos' CI depends on</td><td>operations</td><td>medium</td><td>medium</td><td>Kirk Drake</td><td>A named second maintainer or CODEOWNERS (D4); release tags</td><td>NEW at apply (medium impact)</td><td>open</td><td>2027-01-16</td></tr>
+    <tr><td>RK-10</td><td>Front page says "no dependencies" while workflow_health needs PyYAML; its tests fail locally without it</td><td>delivery</td><td>high</td><td>low</td><td>Maintainer</td><td>State the requirement or remove it (P0)</td><td>P0 sub-issue (new)</td><td>open</td><td>2027-01-16</td></tr>
+    </tbody>
+  </table></div>
+  <p class="src">No risk is marked accepted: none has a person's record. Scan findings: the ops-platform risk register for cu-agent-standards (<code>GET /api/scans/cu-agent-standards/risk-register</code>); whether this app is registered was not checked (no credentials used).</p>
+  <div class="cols">
+    <div class="card"><h3>Assumptions</h3><ul>
+      <li>The repo is a lead-in, not a revenue line: tested by D1.</li>
+      <li>CU2's own use is level 4 (X1): tested by recording one dated adopter list in P1.</li>
+      <li>The spec of 2026-07-28 is still wanted: tested by D5 (Kirk) before P2 starts.</li>
+      <li>A credit union reader finds engineering gates useful before it finds regulatory content: tested by P4's first external adopter or reader.</li>
+    </ul></div>
+    <div class="card"><h3>Open decisions</h3><ul>
+      <li>D1 Fund the publication program with a public lead-in and an adoption target (then re-tier to full), or keep this internal? Recommended: internal until a target exists.</li>
+      <li>D2 Reword "examiner-grade" now, or substantiate it in P2?</li>
+      <li>D3 Licence: MIT only, or MIT for code and CC-BY-4.0 for prose (per the spec)?</li>
+      <li>D4 Pin consumers to a tag, change the default ref, add CODEOWNERS and a second maintainer?</li>
+      <li>D5 Is the 2026-07-28 spec still the plan, and is P1 (36 workflow specs) first?</li>
+      <li>D6 Does Marshal's evidence pack cite these patterns? (A link to Marshal, not Marshal work.)</li>
+      <li>D7 closed: Product is Delivery tooling, internal tier.</li>
+      <li>D8 Who writes the thesis essay?</li>
+    </ul></div>
+  </div>
+</section>
+
+<section id="not-now"><h2>Not now</h2>
+  <ul>
+    <li>A hosted platform, dashboard or registry: that is Marshal, and vendors already sell one.</li>
+    <li>Opening <code>community/</code> contributions (the spec says wait until P1 and P2 are live).</li>
+    <li>Bulk export of the knowledge base (spec P5 says opt-in per entry, never bulk).</li>
+    <li>Publishing the G0-G5 gate description as written: stale by the spec's own warning.</li>
+    <li>Covering banks or other regulators: the repo is for credit unions.</li>
+    <li>Reading the open-source scanners that overlap the gates: not in this brief.</li>
+  </ul>
+</section>
+
+<section id="sources"><h2>Sources and refresh</h2>
+  <ul class="src">
+    <li>credit-union-2-0-llc/cu-agent-standards at 62142e4 (main, 2026-11-18): README, LICENSE, CHANGELOG, workflows, tools; GitHub API for stars, forks, traffic, rulesets, issues, PRs, Actions runs, all read 2026-11-21.</li>
+    <li>cu2-standards <code>docs/cu-agent-standards-SPEC.md</code> and <code>tools/theater-README.md</code>, origin/main fetched 2026-11-21; <code>subprocessors.yml</code>, origin/main, 2026-11-21.</li>
+    <li>NCUA: <a href="https://ncua.gov/regulation-supervision/regulatory-compliance-resources/credit-union-artificial-intelligence-ai-resources">credit union AI resources</a>, page read 2026-11-21 (page dated 11/18/26); <a href="https://ncua.gov/ai">ncua.gov/ai</a> (search result).</li>
+    <li><a href="https://www.nist.gov/itl/ai-risk-management-framework">NIST AI RMF</a>, read 2026-11-21.</li>
+    <li>Decisions: <code>/Users/kirkdrake/Documents/roadmaps/decisions-2026-11-21.md</code> (X1, X3 to X5, X11).</li>
+  </ul>
+  <p class="src">Re-check the references and the adoption count by 2027-02-19.</p>
+</section>
+
+</main>
+</body>
+</html>

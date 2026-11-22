@@ -1,0 +1,6 @@
+version: 1
+products:
+  - name: Delivery tooling
+    paths:
+      - "**"
+shared: []
