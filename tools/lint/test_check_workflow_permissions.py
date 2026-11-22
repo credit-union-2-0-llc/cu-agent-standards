@@ -43,6 +43,18 @@ class Unit(unittest.TestCase):
         for on in ("on: [push, workflow_call]\n", "on: workflow_call\n"):
             self.assertEqual(len(c.check_text(on + "jobs: {}\n")), 1, on)
 
+    def test_quoted_and_yaml11_on_keys_are_detected(self):
+        for on in ('"on":\n  workflow_call:\n', "'on':\n  workflow_call:\n", "true:\n  workflow_call:\n",
+                   '"on": workflow_call\n'):
+            self.assertEqual(len(c.check_text(on + "jobs: {}\n")), 1, on)
+
+    def test_quoted_write_all_is_flagged(self):
+        for v in ('"write-all"', "'write-all'"):
+            self.assertEqual(len(c.check_text(REUSABLE.replace("@PERM@", "permissions: %s\n" % v))), 1, v)
+
+    def test_quoted_permissions_key_counts_as_declared(self):
+        self.assertEqual(c.check_text(REUSABLE.replace("@PERM@", '"permissions":\n  contents: read\n')), [])
+
     def test_non_reusable_workflow_is_ignored(self):
         self.assertEqual(c.check_text("on:\n  push:\njobs: {}\n"), [])
 

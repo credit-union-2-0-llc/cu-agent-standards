@@ -35,7 +35,7 @@ def is_reusable(lines):
     """True when the top-level `on:` key lists workflow_call (block, flow or scalar form)."""
     in_on = False
     for line in lines:
-        if re.match(r"^on\s*:", line):
+        if re.match(r"""^(on|"on"|'on'|true)\s*:""", line):
             in_on = True
             if "workflow_call" in line:
                 return True
@@ -54,11 +54,11 @@ def check_text(text):
     lines = _code_lines(text)
     if not is_reusable(lines):
         return []
-    perms = [l for l in lines if re.match(r"^permissions\s*:", l)]
+    perms = [l for l in lines if re.match(r"""^("permissions"|'permissions'|permissions)\s*:""", l)]
     if not perms:
         return ["reusable workflow has no top-level `permissions:` block "
                 "(it inherits the caller's token scope)"]
-    if re.match(r"^permissions\s*:\s*write-all\s*$", perms[0]):
+    if re.search(r"""^\S+\s*:\s*(["']?)write-all\1\s*$""", perms[0]):
         return ["top-level `permissions: write-all` is not least privilege"]
     return []
 
