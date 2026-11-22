@@ -50,6 +50,15 @@ on:
         type: boolean
         default: true
 
+# Least privilege. Every job here only checks out the caller (and this public
+# repository) and runs local scripts: no PR comments, no API writes, no artifact
+# upload. `contents: read` is the whole requirement. Declared explicitly because a
+# reusable workflow without it inherits the CALLER's token scope. A called
+# workflow can only narrow the caller's permissions, never widen them, so a caller
+# that grants less than `contents: read` still gets that lesser scope.
+permissions:
+  contents: read
+
 jobs:
   theater:
     name: Theater gate (ratchet)

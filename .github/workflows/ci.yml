@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          FLOOR=10  # 5 under tools/theater + 3 under tools/sanitize + 2 under tools/lint
+          FLOOR=11  # 5 under tools/theater + 3 under tools/sanitize + 3 under tools/lint
           SUITES=$(find tools -name 'test_*.py' -type f | sort)
 
           # Counted without `grep -c`, which exits 1 on a zero count and would
@@ -134,6 +134,14 @@ jobs:
           # list, and every gate stayed green. A declared shape nothing verifies is
           # the defect class tools/theater is named after.
           python3 tools/lint/format_lint.py .
+
+      - name: Reusable workflows must declare permissions
+        run: |
+          set -euo pipefail
+          # Every `on: workflow_call` file needs a top-level `permissions:` block,
+          # else it inherits the token scope of all its callers. See
+          # tools/lint/check_workflow_permissions.py.
+          python3 tools/lint/check_workflow_permissions.py .
 
       - name: Sanitize gate — nothing sensitive may land in a PUBLIC repo
         run: |
